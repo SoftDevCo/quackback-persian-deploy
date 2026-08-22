@@ -1,0 +1,107 @@
+import { useQuery } from '@tanstack/react-query'
+import { cn } from '@/lib/shared/utils'
+import { FilterSection } from '@/components/shared/filter-section'
+import { FilterList } from '@/components/admin/feedback/single-select-filter-list'
+import { HelpCenterCategoryTree, type CategoryActions } from './help-center-category-tree'
+import { helpCenterQueries } from '@/lib/client/queries/help-center'
+import type { HelpCenterStatusFilter } from './use-help-center-filters'
+import type { KbCategoryId } from '@quackback/ids'
+
+interface HelpCenterFiltersProps {
+  status: HelpCenterStatusFilter
+  onStatusChange: (status: HelpCenterStatusFilter) => void
+  selectedCategoryId: string | undefined
+  onSelectCategory: (id: KbCategoryId | null) => void
+  categoryActions: CategoryActions
+  showDeleted?: boolean
+  onShowDeletedChange?: (showDeleted: boolean | undefined) => void
+  showPerformance?: boolean
+  onShowPerformanceChange?: (showPerformance: boolean | undefined) => void
+}
+
+const ARTICLE_STATUSES = [
+  { id: 'all', name: 'All', color: undefined },
+  { id: 'draft', name: 'Draft', color: '#6b7280' },
+  { id: 'published', name: 'Published', color: '#22c55e' },
+] as const
+
+export function HelpCenterFiltersPanel({
+  status,
+  onStatusChange,
+  selectedCategoryId,
+  onSelectCategory,
+  categoryActions,
+  showDeleted,
+  onShowDeletedChange,
+  showPerformance,
+  onShowPerformanceChange,
+}: HelpCenterFiltersProps) {
+  const { data: categories = [] } = useQuery(helpCenterQueries.categories())
+
+  return (
+    <div className="space-y-0">
+      <FilterSection title="Status">
+        <div className="space-y-1" role="listbox" aria-label="Status filter">
+          {ARTICLE_STATUSES.map((item) => {
+            const isSelected = status === item.id
+            return (
+              <button
+                key={item.id}
+                type="button"
+                role="option"
+                aria-selected={isSelected}
+                onClick={() => onStatusChange(item.id as HelpCenterStatusFilter)}
+                className={cn(
+                  'w-full text-left px-2.5 py-1.5 rounded-md text-[13px] font-normal transition-colors',
+                  isSelected
+                    ? 'bg-muted text-foreground font-medium'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                )}
+              >
+                <span className="flex items-center gap-2">
+                  {item.color && (
+                    <span
+                      className="h-2 w-2 rounded-full shrink-0"
+                      style={{ backgroundColor: item.color }}
+                      aria-hidden="true"
+                    />
+                  )}
+                  <span className="truncate">{item.name}</span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </FilterSection>
+
+      <FilterSection title="Categories">
+        <HelpCenterCategoryTree
+          categories={categories}
+          selectedId={selectedCategoryId}
+          onNavigate={onSelectCategory}
+          actions={categoryActions}
+        />
+      </FilterSection>
+
+      <FilterSection title="Other">
+        <FilterList
+          items={[
+            { id: 'performance', name: 'Article performance' },
+            { id: 'deleted', name: 'Deleted items' },
+          ]}
+          selectedIds={[
+            ...(showPerformance ? ['performance'] : []),
+            ...(showDeleted ? ['deleted'] : []),
+          ]}
+          onSelect={(id) => {
+            if (id === 'deleted') {
+              onShowDeletedChange?.(!showDeleted || undefined)
+            } else {
+              onShowPerformanceChange?.(!showPerformance || undefined)
+            }
+          }}
+        />
+      </FilterSection>
+    </div>
+  )
+}

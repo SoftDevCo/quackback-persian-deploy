@@ -1,0 +1,453 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+@import "tw-animate-css";
+/* Self-hosted fonts: Inter (the default/UI font, used on every page) loads
+   statically here so there is zero regression for the default path. Every
+   OTHER font referenced by the branding picker (FONT_OPTIONS in
+   use-branding-state.ts) AND the theme presets (FONTS in presets.ts) lives in
+   its own module under src/styles/fonts/ instead, and is loaded on demand —
+   only the workspace's chosen family — via src/lib/shared/theme/font-loader.ts
+   (dynamic `import()`, which Vite code-splits into its own stylesheet). This
+   keeps this render-blocking stylesheet (served to every page, including the
+   third-party-embedded widget iframe) from shipping 15 unused families'
+   @font-face rules. Never emit a fonts.googleapis.com <link> — an edge
+   optimizer (e.g. Cloudflare Fonts) rewrites such a link into inline
+   @font-face and breaks SSR hydration; self-host everything instead, and keep
+   the family name matching the value FONT_OPTIONS/presets.ts store. */
+@import "@fontsource-variable/inter/index.css";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --font-family-sans: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ==============================================
+   QUACKBACK THEME - tweakcn Compatible
+
+   Full compatibility with https://tweakcn.com
+   themes. All variables defined for easy theme
+   swapping via tweakcn JSON exports.
+
+   Colors in OKLCH format for perceptual uniformity
+   ============================================== */
+
+  :root {
+    /* Light mode - Modern Zinc & Gold */
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.886 0.176 86);
+    --primary-foreground: oklch(0.145 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.145 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.145 0 0);
+    --destructive: oklch(0.577 0.245 27);
+    --destructive-foreground: oklch(0.577 0.245 27);
+    --success: oklch(0.696 0.149 163);
+    --success-foreground: oklch(0.985 0 0);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.886 0.176 86);
+    --chart-1: oklch(0.646 0.222 41);
+    --chart-2: oklch(0.6 0.118 184);
+    --chart-3: oklch(0.398 0.07 227);
+    --chart-4: oklch(0.828 0.189 84);
+    --chart-5: oklch(0.769 0.188 70);
+    /* Analytics metric palette — readable on white, cohesive with zinc & gold */
+    --metric-posts: oklch(0.55 0.15 250);
+    --metric-votes: oklch(0.66 0.14 75);
+    --metric-comments: oklch(0.58 0.11 195);
+    --metric-users: oklch(0.55 0.15 295);
+    --metric-visitors: oklch(0.55 0.13 170);
+    --metric-pageviews: oklch(0.52 0.13 230);
+    --metric-visits: oklch(0.6 0.14 45);
+    /* Conversation arrival channels (support volume chart) */
+    --metric-widget: oklch(0.55 0.15 250);
+    --metric-email: oklch(0.58 0.11 195);
+    --metric-ticket-form: oklch(0.6 0.14 45);
+    --sidebar: oklch(0.985 0 0);
+    --sidebar-foreground: oklch(0.145 0 0);
+    --sidebar-primary: oklch(0.886 0.176 86);
+    --sidebar-primary-foreground: oklch(0.145 0 0);
+    --sidebar-accent: oklch(0.97 0 0);
+    --sidebar-accent-foreground: oklch(0.145 0 0);
+    --sidebar-border: oklch(0.922 0 0);
+    --sidebar-ring: oklch(0.886 0.176 86);
+    --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, sans-serif;
+    --font-serif: ui-serif, Georgia, Cambria, serif;
+    --font-mono: ui-monospace, SFMono-Regular, monospace;
+    --radius: 0.625rem;
+    --letter-spacing: 0em;
+    /* Shadows - light mode (subtle) */
+    --shadow-2xs: 0 1px oklch(0 0 0 / 0.05);
+    --shadow-xs: 0 1px 2px 0 oklch(0 0 0 / 0.05);
+    --shadow-sm: 0 1px 3px 0 oklch(0 0 0 / 0.1), 0 1px 2px -1px oklch(0 0 0 / 0.1);
+    --shadow: 0 1px 3px 0 oklch(0 0 0 / 0.1), 0 1px 2px -1px oklch(0 0 0 / 0.1);
+    --shadow-md: 0 4px 6px -1px oklch(0 0 0 / 0.1), 0 2px 4px -2px oklch(0 0 0 / 0.1);
+    --shadow-lg: 0 10px 15px -3px oklch(0 0 0 / 0.1), 0 4px 6px -4px oklch(0 0 0 / 0.1);
+    --shadow-xl: 0 20px 25px -5px oklch(0 0 0 / 0.1), 0 8px 10px -6px oklch(0 0 0 / 0.1);
+    --shadow-2xl: 0 25px 50px -12px oklch(0 0 0 / 0.25);
+    /* Portal component variables (fallback to global values) */
+    --header-background: var(--card);
+    --header-foreground: var(--foreground);
+    --header-border: var(--border);
+    --post-card-background: var(--card);
+    --post-card-border: var(--border);
+    --post-card-voted-color: var(--primary);
+    --nav-active-background: var(--muted);
+    --nav-active-foreground: var(--foreground);
+    --nav-inactive-color: var(--muted-foreground);
+    --portal-button-background: var(--primary);
+    --portal-button-foreground: var(--primary-foreground);
+  }
+
+  .dark {
+    /* Dark mode - Deep Zinc & Gold */
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.17 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.17 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.886 0.176 86);
+    --primary-foreground: oklch(0.145 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.396 0.141 25);
+    --destructive-foreground: oklch(0.637 0.237 25);
+    --success: oklch(0.696 0.149 163);
+    --success-foreground: oklch(0.985 0 0);
+    --border: oklch(0.269 0 0);
+    --input: oklch(0.269 0 0);
+    --ring: oklch(0.556 0 0);
+    --chart-1: oklch(0.488 0.243 264);
+    --chart-2: oklch(0.696 0.17 162);
+    --chart-3: oklch(0.769 0.188 70);
+    --chart-4: oklch(0.627 0.265 303);
+    --chart-5: oklch(0.645 0.246 16);
+    /* Analytics metric palette — lifted lightness for legibility on near-black */
+    --metric-posts: oklch(0.7 0.14 250);
+    --metric-votes: oklch(0.8 0.14 80);
+    --metric-comments: oklch(0.72 0.11 195);
+    --metric-users: oklch(0.7 0.15 295);
+    --metric-visitors: oklch(0.7 0.13 170);
+    --metric-pageviews: oklch(0.7 0.13 230);
+    --metric-visits: oklch(0.75 0.13 50);
+    /* Conversation arrival channels (support volume chart) */
+    --metric-widget: oklch(0.7 0.14 250);
+    --metric-email: oklch(0.72 0.11 195);
+    --metric-ticket-form: oklch(0.75 0.13 50);
+    --sidebar: oklch(0.145 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: oklch(0.886 0.176 86);
+    --sidebar-primary-foreground: oklch(0.145 0 0);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(0.269 0 0);
+    --sidebar-ring: oklch(0.556 0 0);
+    /* Shadows - dark mode (more pronounced) */
+    --shadow-2xs: 0 1px oklch(0 0 0 / 0.15);
+    --shadow-xs: 0 1px 2px 0 oklch(0 0 0 / 0.15);
+    --shadow-sm: 0 1px 3px 0 oklch(0 0 0 / 0.25), 0 1px 2px -1px oklch(0 0 0 / 0.25);
+    --shadow: 0 1px 3px 0 oklch(0 0 0 / 0.25), 0 1px 2px -1px oklch(0 0 0 / 0.25);
+    --shadow-md: 0 4px 6px -1px oklch(0 0 0 / 0.25), 0 2px 4px -2px oklch(0 0 0 / 0.25);
+    --shadow-lg: 0 10px 15px -3px oklch(0 0 0 / 0.25), 0 4px 6px -4px oklch(0 0 0 / 0.25);
+    --shadow-xl: 0 20px 25px -5px oklch(0 0 0 / 0.25), 0 8px 10px -6px oklch(0 0 0 / 0.25);
+    --shadow-2xl: 0 25px 50px -12px oklch(0 0 0 / 0.5);
+    /* Portal component variables (fallback to global values) */
+    --header-background: var(--card);
+    --header-foreground: var(--foreground);
+    --header-border: var(--border);
+    --post-card-background: var(--card);
+    --post-card-border: var(--border);
+    --post-card-voted-color: var(--primary);
+    --nav-active-background: var(--muted);
+    --nav-active-foreground: var(--foreground);
+    --nav-inactive-color: var(--muted-foreground);
+    --portal-button-background: var(--primary);
+    --portal-button-foreground: var(--primary-foreground);
+  }
+
+  @theme inline {
+    /* Colors */
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+    --color-chart-1: var(--chart-1);
+    --color-chart-2: var(--chart-2);
+    --color-chart-3: var(--chart-3);
+    --color-chart-4: var(--chart-4);
+    --color-chart-5: var(--chart-5);
+    --color-metric-posts: var(--metric-posts);
+    --color-metric-votes: var(--metric-votes);
+    --color-metric-comments: var(--metric-comments);
+    --color-metric-users: var(--metric-users);
+    --color-metric-visitors: var(--metric-visitors);
+    --color-metric-pageviews: var(--metric-pageviews);
+    --color-metric-visits: var(--metric-visits);
+    --color-sidebar: var(--sidebar);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-ring: var(--sidebar-ring);
+
+    /* Portal component colors */
+    --color-post-card-voted: var(--post-card-voted-color);
+
+    /* Typography */
+    --font-sans: var(--font-sans);
+    --font-mono: var(--font-mono);
+    --font-serif: var(--font-serif);
+
+    /* Border radius - scaled from base --radius to avoid negative values */
+    --radius-sm: calc(var(--radius) * 0.5);
+    --radius-md: calc(var(--radius) * 0.75);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.5);
+
+    /* Shadows (themeable per workspace) */
+    --shadow-2xs: var(--shadow-2xs);
+    --shadow-xs: var(--shadow-xs);
+    --shadow-sm: var(--shadow-sm);
+    --shadow: var(--shadow);
+    --shadow-md: var(--shadow-md);
+    --shadow-lg: var(--shadow-lg);
+    --shadow-xl: var(--shadow-xl);
+    --shadow-2xl: var(--shadow-2xl);
+
+    /* Letter spacing / tracking variants */
+    --tracking-tighter: calc(var(--letter-spacing) - 0.05em);
+    --tracking-tight: calc(var(--letter-spacing) - 0.025em);
+    --tracking-normal: var(--letter-spacing);
+    --tracking-wide: calc(var(--letter-spacing) + 0.025em);
+    --tracking-wider: calc(var(--letter-spacing) + 0.05em);
+    --tracking-widest: calc(var(--letter-spacing) + 0.1em);
+
+    /* Collapsible animations */
+    --animate-collapsible-down: collapsible-down 150ms ease-out;
+    --animate-collapsible-up: collapsible-up 150ms ease-out;
+
+    /* OTP input caret blink */
+    --animate-caret-blink: caret-blink 1.25s ease-out infinite;
+
+    /* "Jump to message" flash — brief brand-tinted background that fades out,
+       so a deep-linked / saved message is easy to spot on arrival. */
+    --animate-flash-highlight: flash-highlight 2.2s ease-out;
+  }
+
+/* Collapsible keyframes */
+@keyframes collapsible-down {
+  from {
+    height: 0;
+    opacity: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+  }
+}
+
+@keyframes collapsible-up {
+  from {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+  }
+  to {
+    height: 0;
+    opacity: 0;
+  }
+}
+
+@keyframes caret-blink {
+  0%,
+  70%,
+  100% {
+    opacity: 1;
+  }
+  20%,
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Jump-to-message flash: hold a brand tint briefly, then fade to transparent so
+   the row returns to its normal background. */
+@keyframes flash-highlight {
+  0%,
+  20% {
+    background-color: color-mix(in oklab, var(--primary) 22%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* ==============================================
+   Base Styles (shadcn/ui standard)
+   Applies default border and outline colors
+   ============================================== */
+
+@layer base {
+  * {
+    color-scheme: light dark;
+    @apply border-border outline-ring/50;
+  }
+  body {
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: var(--letter-spacing);
+    @apply bg-background text-foreground;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+/* Interactive elements — pointer cursor for native controls.
+   Kept narrow on purpose: no [tabindex] or [data-radix-collection-item]
+   (those match whole card containers, not just clickable elements).
+   <a> is omitted — user-agent already gives it cursor: pointer. */
+button,
+[role="button"],
+input[type="submit"],
+input[type="button"],
+input[type="reset"],
+select {
+  cursor: pointer;
+}
+
+/* Utility class for manual cursor overrides */
+.cursor-pointer {
+  cursor: pointer;
+}
+
+/* Ensure SVGs in buttons don't cause cursor flickering */
+button svg,
+a svg,
+[role="button"] svg {
+  pointer-events: none;
+}
+
+/* Radix ScrollArea styles - prevent dynamic style injection flickering */
+[data-radix-scroll-area-viewport] {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+[data-radix-scroll-area-viewport]::-webkit-scrollbar {
+  display: none;
+}
+
+/* Scrollbar utilities - tweakcn compatible */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 3px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 3px;
+    transition: background 0.2s ease;
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background: var(--color-muted-foreground);
+  }
+}
+
+@utility scrollbar-gutter-stable {
+  scrollbar-gutter: stable;
+}
+
+@utility scrollbar-gutter-both {
+  scrollbar-gutter: stable both-edges;
+}
+
+/* Legacy class aliases for backward compatibility */
+.custom-scrollbar {
+  @apply scrollbar-thin;
+}
+
+.custom-scrollbar-hover {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.custom-scrollbar-hover:hover {
+  scrollbar-color: var(--color-border) transparent;
+}
+
+.custom-scrollbar-hover::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar-hover::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+  transition: background 0.2s ease;
+}
+
+.custom-scrollbar-hover:hover::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+}
+
+.custom-scrollbar-hover:hover::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted-foreground);
+}
+
