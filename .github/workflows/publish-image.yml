@@ -9,6 +9,10 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: publish-quackback-image-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -26,12 +30,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and publish
+      - name: Build and publish immutable and latest tags
         uses: docker/build-push-action@v6
+        id: build
         with:
           context: .
           file: apps/web/Dockerfile
           push: true
-          tags: ghcr.io/softdevco/quackback-persian:latest
+          tags: |
+            ghcr.io/softdevco/quackback-persian:latest
+            ghcr.io/softdevco/quackback-persian:sha-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Record rollback reference
+        run: |
+          {
+            echo "### Published image"
+            echo "- Immutable tag: ghcr.io/softdevco/quackback-persian:sha-${GITHUB_SHA}"
+            echo "- Digest: ghcr.io/softdevco/quackback-persian@${{ steps.build.outputs.digest }}"
+            echo "- latest is updated only after the image build succeeds"
+          } >> "$GITHUB_STEP_SUMMARY"

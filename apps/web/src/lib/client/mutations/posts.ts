@@ -21,6 +21,10 @@ import {
 } from '@/lib/server/functions/posts'
 import { toggleVoteFn } from '@/lib/server/functions/public-posts'
 import { inboxKeys } from '@/lib/client/hooks/use-inbox-query'
+import {
+  updatePostInInboxLists,
+  removePostFromInboxLists,
+} from '@/lib/client/mutations/inbox-list-cache'
 import { roadmapPostsKeys } from '@/lib/client/hooks/use-roadmap-posts-query'
 import { votedPostsKeys } from '@/lib/client/hooks/use-portal-posts-query'
 import type { PostDetails } from '@/lib/shared/types'
@@ -113,25 +117,13 @@ function invalidateRoadmapForStatus(
   })
 }
 
-/** Update a post in all list caches */
+/** Update a post in all infinite inbox list caches (skips non-list siblings). */
 function updatePostInLists(
   queryClient: ReturnType<typeof useQueryClient>,
   postId: PostId,
   updater: (post: PostListItem) => PostListItem
 ): void {
-  queryClient.setQueriesData<InfiniteData<InboxPostListResult>>(
-    { queryKey: inboxKeys.lists() },
-    (old) => {
-      if (!old) return old
-      return {
-        ...old,
-        pages: old.pages.map((page) => ({
-          ...page,
-          items: page.items.map((post) => (post.id === postId ? updater(post) : post)),
-        })),
-      }
-    }
-  )
+  updatePostInInboxLists(queryClient, postId, updater)
 }
 
 // ============================================================================
@@ -627,20 +619,7 @@ export function useDeletePost() {
     mutationFn: async ({ postId, cascadeChoices }: DeletePostInput): Promise<DeletePostResult> =>
       deletePostFn({ data: { id: postId, cascadeChoices } }),
     onSuccess: (_data, { postId }) => {
-      // Remove from all list caches
-      queryClient.setQueriesData<InfiniteData<InboxPostListResult>>(
-        { queryKey: inboxKeys.lists() },
-        (old) => {
-          if (!old) return old
-          return {
-            ...old,
-            pages: old.pages.map((page) => ({
-              ...page,
-              items: page.items.filter((post) => post.id !== postId),
-            })),
-          }
-        }
-      )
+      removePostFromInboxLists(queryClient, postId)
       // Remove detail cache
       queryClient.removeQueries({ queryKey: inboxKeys.detail(postId) })
       // Invalidate lists and roadmap
@@ -660,20 +639,7 @@ export function useRestorePost() {
   return useMutation({
     mutationFn: (postId: PostId) => restorePostFn({ data: { id: postId } }),
     onSuccess: (_data, postId) => {
-      // Remove from current (deleted) list cache
-      queryClient.setQueriesData<InfiniteData<InboxPostListResult>>(
-        { queryKey: inboxKeys.lists() },
-        (old) => {
-          if (!old) return old
-          return {
-            ...old,
-            pages: old.pages.map((page) => ({
-              ...page,
-              items: page.items.filter((post) => post.id !== postId),
-            })),
-          }
-        }
-      )
+      removePostFromInboxLists(queryClient, postId)
       // Remove detail cache
       queryClient.removeQueries({ queryKey: inboxKeys.detail(postId) })
       // Invalidate all lists and roadmap (restored posts may reappear in roadmaps)
