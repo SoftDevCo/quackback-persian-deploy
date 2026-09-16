@@ -3,7 +3,7 @@ name: Publish Quackback image
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, beta-persian-email]
 
 permissions:
   contents: read
