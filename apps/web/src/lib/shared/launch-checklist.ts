@@ -365,3 +365,10 @@ export function launchChecklistSummary(
           : `${remaining} setup step${remaining === 1 ? '' : 's'} to go`,
   }
 }
+
+export function isLaunchPlanActive(summary: {
+  resolved: boolean
+  firstWinComplete: boolean
+}): boolean {
+  return !summary.resolved || !summary.firstWinComplete
+}

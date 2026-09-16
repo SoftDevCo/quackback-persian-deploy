@@ -12,24 +12,24 @@ interface WelcomeEmailProps {
 export function WelcomeEmail({ name, workspaceName, dashboardUrl, logoUrl }: WelcomeEmailProps) {
   return (
     <EmailLayout
-      preview={`Welcome to ${workspaceName} on Quackback`}
+      preview={`به ${workspaceName} در کوئک‌بک خوش آمدید`}
       logoUrl={logoUrl}
       logoAlt={workspaceName}
     >
       {/* Content */}
-      <Heading style={typography.h1}>Welcome to Quackback!</Heading>
+      <Heading style={typography.h1}>به کوئک‌بک خوش آمدید!</Heading>
       <Text style={typography.text}>
-        Hi {name}, your workspace <strong>{workspaceName}</strong> is ready. Start collecting and
-        managing customer feedback today.
+        سلام {name}، فضای کاری <strong>{workspaceName}</strong> شما آماده است. از امروز جمع‌آوری و
+        مدیریت بازخورد مشتریان را شروع کنید.
       </Text>
 
       {/* Features List - using Row/Column instead of spans for email compatibility */}
       <Section style={{ marginBottom: '24px' }}>
         {[
-          'Create feedback boards',
-          'Invite your team',
-          'Share your public roadmap',
-          'Connect GitHub, Slack & Discord',
+          'ساخت تابلوی بازخورد',
+          'دعوت از اعضای تیم',
+          'اشتراک‌گذاری نقشه‌راه عمومی',
+          'اتصال به GitHub، Slack و Discord',
         ].map((feature) => (
           <Row key={feature} style={{ marginBottom: '4px' }}>
             <Column style={{ width: '28px', verticalAlign: 'top' }}>
@@ -45,15 +45,15 @@ export function WelcomeEmail({ name, workspaceName, dashboardUrl, logoUrl }: Wel
       {/* CTA Button */}
       <Section style={{ textAlign: 'center', marginBottom: '32px' }}>
         <Button style={button.primary} href={dashboardUrl}>
-          Go to Dashboard
+          رفتن به داشبورد
         </Button>
       </Section>
 
       {/* Footer */}
       <TransactionalFooter>
-        Happy collecting!
+        از جمع‌آوری بازخورد لذت ببرید!
         <br />
-        The Quackback Team
+        تیم کوئک‌بک
       </TransactionalFooter>
     </EmailLayout>
   )

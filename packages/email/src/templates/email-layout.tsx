@@ -33,7 +33,7 @@ export function EmailLayout({
   footer,
 }: EmailLayoutProps) {
   return (
-    <Html>
+    <Html lang="fa" dir="rtl">
       <Head />
       <Preview>{preview}</Preview>
       <Body style={layout.main}>
@@ -71,7 +71,7 @@ export function TransactionalFooter({ children }: { children: React.ReactNode })
 export function NotificationFooter({
   reason,
   unsubscribeUrl,
-  unsubscribeLabel = 'Unsubscribe from this post',
+  unsubscribeLabel = 'لغو دریافت اعلان‌های این مطلب',
   preferencesUrl,
 }: {
   reason: string
@@ -90,7 +90,7 @@ export function NotificationFooter({
         <>
           {' · '}
           <Link href={preferencesUrl} style={{ ...utils.link, fontSize: '13px' }}>
-            Manage notification preferences
+            مدیریت تنظیمات اعلان‌ها
           </Link>
         </>
       ) : null}

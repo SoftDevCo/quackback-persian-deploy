@@ -53,11 +53,11 @@ describe('sendTicketEventEmail', () => {
   })
 
   it.each<[TicketEmailKind, string]>([
-    ['created', 'We received your ticket #142: Export fails on large CSV'],
-    ['reply', 'New reply on #142: Export fails on large CSV'],
-    ['status_resolved', 'Your ticket #142 was resolved'],
-    ['assigned', 'Ticket #142 assigned to you'],
-    ['assigned_team', 'Ticket #142 assigned to your team'],
+    ['created', 'تیکت شما دریافت شد؛ #142: Export fails on large CSV'],
+    ['reply', 'پاسخ جدید به #142: Export fails on large CSV'],
+    ['status_resolved', 'تیکت #142 حل شد'],
+    ['assigned', 'تیکت #142 به شما اختصاص داده شد'],
+    ['assigned_team', 'تیکت #142 به تیم شما اختصاص داده شد'],
   ])('sends kind %s with the mapped subject', async (kind, subject) => {
     const result = await sendTicketEventEmail({ ...baseParams, kind })
     expect(result.sent).toBe(true)
@@ -77,7 +77,7 @@ describe('sendTicketEventEmail', () => {
       dueLabel: 'in 32 minutes',
     })
     expect(sendMailMock.mock.calls[0][0].subject).toBe(
-      'SLA at risk: first response due in 32 minutes'
+      'هشدار مهلت پاسخ: پاسخ اولیه تا ۳۲ دقیقه دیگر'
     )
   })
 
@@ -90,7 +90,7 @@ describe('sendTicketEventEmail', () => {
     })
     expect(result.sent).toBe(true)
     const call = sendMailMock.mock.calls[0][0]
-    expect(call.subject).toBe('Your ticket #142 was closed')
+    expect(call.subject).toBe('تیکت #142 بسته شد')
   })
 
   it('forwards threading headers, replyTo, and the from override when provided', async () => {

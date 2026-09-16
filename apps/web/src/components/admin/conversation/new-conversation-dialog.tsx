@@ -1,8 +1,16 @@
-import { useEffect, useState } from 'react'
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type DragEvent,
+} from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { toast } from 'sonner'
-import { ArrowLeftIcon, PaperAirplaneIcon } from '@heroicons/react/24/solid'
+import { ArrowLeftIcon, PaperAirplaneIcon, PaperClipIcon } from '@heroicons/react/24/solid'
 import type { JSONContent } from '@tiptap/react'
 import type { PrincipalId } from '@quackback/ids'
 import type { TiptapContent } from '@/lib/shared/db-types'
@@ -10,10 +18,13 @@ import { MAX_CONVERSATION_MESSAGE_LENGTH } from '@/lib/shared/conversation/types
 import { startAgentConversationFn } from '@/lib/server/functions/conversation'
 import { realEmail } from '@/lib/shared/anonymous-email'
 import { PortalUserPicker } from '@/components/shared/portal-user-picker'
-import { RichTextEditor } from '@/components/ui/rich-text-editor'
+import { LazyRichTextEditor } from '@/components/ui/lazy-rich-text-editor'
+import { Skeleton } from '@/components/ui/skeleton'
 import { CONVERSATION_EDITOR_FEATURES } from '@/components/conversation/conversation-editor-features'
+import { ComposerAttachmentTray } from '@/components/shared/composer-attachment-tray'
 import { isEmptyTiptapDoc } from '@/lib/shared/utils/is-empty-tiptap-doc'
 import { useImageUpload } from '@/lib/client/hooks/use-image-upload'
+import { useConversationComposerAttachments } from '@/lib/client/hooks/use-conversation-composer-attachments'
 import {
   Dialog,
   DialogContent,
@@ -23,6 +34,10 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Avatar } from '@/components/ui/avatar'
+
+function toastImageUploadError(error: Error) {
+  toast.error(error.message)
+}
 
 export interface NewConversationTarget {
   principalId: string
@@ -67,16 +82,52 @@ export function NewConversationDialog({
       setMessageJson(undefined)
       setMessageMarkdown('')
       setComposerKey((k) => k + 1)
+      clearAttachments()
     }
   }, [open, initialTarget])
 
-  const { upload: uploadImage } = useImageUpload({ prefix: 'chat-images' })
+  const { upload: uploadImage } = useImageUpload({
+    prefix: 'chat-images',
+    onError: toastImageUploadError,
+  })
+  const {
+    pending: pendingAttachments,
+    addFiles,
+    remove: removeAttachment,
+    clear: clearAttachments,
+    uploading,
+  } = useConversationComposerAttachments(uploadImage)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleComposerPaste = useCallback(
+    (e: ClipboardEvent<HTMLDivElement>) => {
+      const images = Array.from(e.clipboardData?.files ?? []).filter((f) =>
+        f.type.startsWith('image/')
+      )
+      if (images.length === 0) return
+      e.preventDefault()
+      void addFiles(images)
+    },
+    [addFiles]
+  )
+  const handleComposerDrop = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      const images = Array.from(e.dataTransfer?.files ?? []).filter((f) =>
+        f.type.startsWith('image/')
+      )
+      if (images.length === 0) return
+      e.preventDefault()
+      void addFiles(images)
+    },
+    [addFiles]
+  )
 
   const send = useMutation({
     mutationFn: (vars: {
       targetPrincipalId: PrincipalId
       content: string
       contentJson?: TiptapContent | null
+      attachments?: typeof pendingAttachments
     }) => startAgentConversationFn({ data: vars }),
     onSuccess: (result) => {
       toast.success('Message sent')
@@ -89,7 +140,8 @@ export function NewConversationDialog({
   })
 
   const isEmpty = isEmptyTiptapDoc(messageJson as TiptapContent | undefined)
-  const canSend = !!target && !isEmpty && !send.isPending
+  const canSend =
+    !!target && (!isEmpty || pendingAttachments.length > 0) && !send.isPending && !uploading
 
   const submit = () => {
     if (!canSend || !target) return
@@ -107,6 +159,7 @@ export function NewConversationDialog({
       targetPrincipalId: target.principalId as PrincipalId,
       content,
       contentJson: isEmpty ? null : (messageJson as TiptapContent),
+      attachments: pendingAttachments.length > 0 ? pendingAttachments : undefined,
     })
   }
 
@@ -154,20 +207,50 @@ export function NewConversationDialog({
                 </span>
               </span>
             </div>
-            <RichTextEditor
-              key={composerKey}
-              value={messageJson ?? ''}
-              onChange={(json, _html, markdown) => {
-                setMessageJson(json)
-                setMessageMarkdown(markdown)
+            <div onPaste={handleComposerPaste} onDrop={handleComposerDrop}>
+              <Suspense
+                fallback={<Skeleton className="w-full rounded-md" style={{ minHeight: '100px' }} />}
+              >
+                <LazyRichTextEditor
+                  key={composerKey}
+                  value={messageJson ?? ''}
+                  onChange={(json, _html, markdown) => {
+                    setMessageJson(json)
+                    setMessageMarkdown(markdown)
+                  }}
+                  features={CONVERSATION_EDITOR_FEATURES}
+                  autofocus
+                  minHeight="100px"
+                  placeholder="Write your message…"
+                />
+              </Suspense>
+              <ComposerAttachmentTray
+                attachments={pendingAttachments}
+                onRemove={removeAttachment}
+              />
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const files = e.target.files
+                if (files && files.length > 0) void addFiles(files)
+                e.target.value = ''
               }}
-              features={CONVERSATION_EDITOR_FEATURES}
-              onImageUpload={uploadImage}
-              autofocus
-              minHeight="100px"
-              placeholder="Write your message…"
             />
-            <div className="flex justify-end">
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:opacity-40 transition-colors"
+                aria-label="Attach image"
+              >
+                <PaperClipIcon className="h-4 w-4" />
+              </button>
               <Button onClick={submit} disabled={!canSend}>
                 <PaperAirplaneIcon className="me-1.5 size-4" />
                 {send.isPending ? 'Sending…' : 'Send message'}

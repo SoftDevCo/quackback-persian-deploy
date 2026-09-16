@@ -32,7 +32,7 @@ export function CsatRequestEmail({
   workspaceName,
   logoUrl,
 }: CsatRequestEmailProps) {
-  const heading = 'How did we do?'
+  const heading = 'عملکرد ما چطور بود؟'
   return (
     <EmailLayout preview={heading} logoUrl={logoUrl} logoAlt={workspaceName}>
       <Heading style={typography.h1}>{heading}</Heading>
@@ -59,11 +59,11 @@ export function CsatRequestEmail({
       </Section>
 
       <Text style={{ ...typography.textSmall, color: colors.textMuted, textAlign: 'center' }}>
-        Click a face above to rate your experience.
+        برای امتیازدهی به تجربه‌ی خود، یکی از گزینه‌های بالا را انتخاب کنید.
       </Text>
 
       <TransactionalFooter>
-        You received this email because you had a conversation with {workspaceName}.
+        این ایمیل به دلیل گفتگویی که با {workspaceName} داشته‌اید برای شما ارسال شده است.
       </TransactionalFooter>
     </EmailLayout>
   )

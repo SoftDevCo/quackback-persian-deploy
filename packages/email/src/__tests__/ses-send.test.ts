@@ -35,6 +35,8 @@ import { sendingAs } from './brands'
 /** The `send` every env-driven test observes, shared by the mocked SDK client. */
 const sdkSend = vi.hoisted(() => vi.fn())
 
+const smtpSend = vi.hoisted(() => vi.fn().mockRejectedValue(new Error('SMTP is intentionally unavailable in this unit test')))
+
 /** The `warn` the console rung is asserted to reach. */
 const logWarn = vi.hoisted(() => vi.fn())
 
@@ -61,6 +63,12 @@ vi.mock('@aws-sdk/client-sesv2', async (importOriginal) => {
     },
   }
 })
+
+vi.mock('nodemailer', () => ({
+  default: {
+    createTransport: () => ({ sendMail: smtpSend }),
+  },
+}))
 
 const ENV_KEYS = [
   'EMAIL_SES_ACCESS_KEY_ID',
@@ -895,7 +903,7 @@ describe('dispatch on the ses rung', () => {
       conversationSubject: 'Re: Billing overcharge',
     })
     const command = sdkSend.mock.calls[0][0] as SendEmailCommand
-    expect(command.input.Content?.Simple?.Subject?.Data).toBe('Re: Billing overcharge')
+    expect(command.input.Content?.Simple?.Subject?.Data).toBe('پاسخ: Billing overcharge')
     expect(command.input.Content?.Simple?.Body?.Text?.Data).toMatch(/I checked the invoice/)
     expect(command.input.Content?.Simple?.Body?.Html?.Data).toContain('I checked the invoice.')
     expect(command.input.Content?.Simple?.Body?.Html?.Data).not.toContain('New reply from Acme')

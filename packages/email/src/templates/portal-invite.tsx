@@ -17,15 +17,15 @@ export function PortalInviteEmail({
 }: PortalInviteEmailProps) {
   return (
     <EmailLayout
-      preview={`You've been invited to access the ${workspaceName} portal`}
+      preview={`برای دسترسی به پورتال ${workspaceName} دعوت شده‌اید`}
       logoUrl={logoUrl}
       logoAlt={workspaceName}
     >
       {/* Content */}
-      <Heading style={typography.h1}>You&apos;ve been invited!</Heading>
+      <Heading style={typography.h1}>از شما دعوت شده است!</Heading>
       <Text style={typography.text}>
-        You&apos;ve been invited to access the <strong>{workspaceName}</strong> portal. Click below
-        to accept and sign in.
+        برای دسترسی به پورتال <strong>{workspaceName}</strong> دعوت شده‌اید. برای پذیرش دعوت و
+        ورود، روی دکمه‌ی زیر کلیک کنید.
       </Text>
 
       {personalMessage && (
@@ -48,13 +48,13 @@ export function PortalInviteEmail({
       {/* CTA Button */}
       <Section style={{ textAlign: 'center', marginTop: '32px', marginBottom: '32px' }}>
         <Button style={button.primary} href={inviteLink}>
-          Accept invitation
+          پذیرش دعوت‌نامه
         </Button>
       </Section>
 
       {/* Fallback Link */}
       <Text style={typography.textSmall}>
-        Or copy and paste this link into your browser:{' '}
+        یا این پیوند را در مرورگر خود کپی و جای‌گذاری کنید:{' '}
         <Link href={inviteLink} style={utils.link}>
           {inviteLink}
         </Link>
@@ -62,7 +62,7 @@ export function PortalInviteEmail({
 
       {/* Footer */}
       <TransactionalFooter>
-        If you weren&apos;t expecting this invitation, you can ignore this email.
+        اگر منتظر این دعوت‌نامه نبوده‌اید، می‌توانید این ایمیل را نادیده بگیرید.
       </TransactionalFooter>
     </EmailLayout>
   )

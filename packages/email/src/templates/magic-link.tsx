@@ -19,22 +19,22 @@ interface MagicLinkEmailProps {
  */
 export function MagicLinkEmail({ signInUrl, code, logoUrl }: MagicLinkEmailProps) {
   return (
-    <EmailLayout preview="Your sign-in link" logoUrl={logoUrl}>
-      <Heading style={{ ...typography.h1, textAlign: 'center' }}>Sign in to Quackback</Heading>
+    <EmailLayout preview="پیوند ورود به حساب" logoUrl={logoUrl}>
+      <Heading style={{ ...typography.h1, textAlign: 'center' }}>ورود به کوئک‌بک</Heading>
       <Text style={{ ...typography.text, textAlign: 'center' }}>
-        Click the button below to finish signing in.
+        برای تکمیل ورود، روی دکمه‌ی زیر کلیک کنید.
       </Text>
 
       <Section style={{ textAlign: 'center', marginTop: '32px', marginBottom: '32px' }}>
         <Button style={button.primary} href={signInUrl}>
-          Sign in
+          ورود
         </Button>
       </Section>
 
       <Hr style={{ margin: '32px 0', borderColor: '#e5e7eb' }} />
 
       <Text style={{ ...typography.text, textAlign: 'center' }}>
-        Or enter this code on the sign-in screen:
+        یا این کد را در صفحه‌ی ورود وارد کنید:
       </Text>
 
       <Section style={utils.codeBox}>
@@ -42,11 +42,11 @@ export function MagicLinkEmail({ signInUrl, code, logoUrl }: MagicLinkEmailProps
       </Section>
 
       <Text style={{ ...typography.textSmall, textAlign: 'center' }}>
-        The link and code expire in 10 minutes.
+        این پیوند و کد تا ۱۰ دقیقه معتبر هستند.
       </Text>
 
       <TransactionalFooter>
-        If you didn&apos;t request this, you can safely ignore this email.
+        اگر شما درخواست ورود نداده‌اید، می‌توانید این ایمیل را نادیده بگیرید.
       </TransactionalFooter>
     </EmailLayout>
   )

@@ -26,6 +26,18 @@ function getStatusEmoji(status: string): string {
 }
 
 function capitalizeStatus(status: string): string {
+  const key = status.toLowerCase().replace(/[_\s-]+/g, '_')
+  const labels: Record<string, string> = {
+    open: 'باز',
+    under_review: 'در حال بررسی',
+    planned: 'برنامه‌ریزی‌شده',
+    in_progress: 'در حال انجام',
+    complete: 'تکمیل‌شده',
+    completed: 'تکمیل‌شده',
+    closed: 'بسته‌شده',
+    resolved: 'حل‌شده',
+  }
+  if (labels[key]) return labels[key]
   return status
     .split(/[_\s]+/)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
@@ -48,16 +60,16 @@ export function StatusChangeEmail({
 
   return (
     <EmailLayout
-      preview={`${emoji} Your feedback is now ${formattedNewStatus}`}
+      preview={`${emoji} وضعیت بازخورد شما اکنون ${formattedNewStatus} است`}
       logoUrl={logoUrl}
       logoAlt={organizationName}
     >
       {/* Content */}
       <Heading style={typography.h1}>
-        {emoji} Your feedback is now {formattedNewStatus}!
+        {emoji} وضعیت بازخورد شما اکنون {formattedNewStatus} است!
       </Heading>
       <Text style={typography.text}>
-        Great news! The status of your feedback has been updated on {organizationName}.
+        خبر خوب! وضعیت بازخورد شما در {organizationName} به‌روزرسانی شده است.
       </Text>
 
       {/* Post Title */}
@@ -84,13 +96,13 @@ export function StatusChangeEmail({
       {/* CTA Button */}
       <Section style={{ textAlign: 'center', marginTop: '32px', marginBottom: '32px' }}>
         <Button style={button.primary} href={postUrl}>
-          View Feedback
+          مشاهده‌ی بازخورد
         </Button>
       </Section>
 
       {/* Footer */}
       <NotificationFooter
-        reason="You received this email because you submitted or subscribed to this feedback."
+        reason="این ایمیل به این دلیل برای شما ارسال شده که این بازخورد را ثبت کرده‌اید یا دریافت اعلان‌های آن را فعال کرده‌اید."
         unsubscribeUrl={unsubscribeUrl}
         preferencesUrl={preferencesUrl}
       />

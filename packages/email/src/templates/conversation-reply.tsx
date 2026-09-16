@@ -24,12 +24,13 @@ export interface ConversationReplyEmailProps {
 const page: React.CSSProperties = {
   backgroundColor: '#ffffff',
   color: '#1d2939',
-  fontFamily:
-    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  fontFamily: 'Vazirmatn, Vazir, Tahoma, Arial, sans-serif',
   fontSize: '15px',
   lineHeight: '1.65',
   margin: 0,
   padding: '24px 8px 32px',
+  direction: 'rtl',
+  textAlign: 'right',
 }
 
 const body: React.CSSProperties = {
@@ -81,7 +82,7 @@ const quote: React.CSSProperties = {
 function formatQuoteDate(value: Date | string): string {
   const date = value instanceof Date ? value : new Date(value)
   if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return date.toLocaleDateString('fa-IR', { month: 'long', day: 'numeric' })
 }
 
 function quoteExcerpt(text: string): string {
@@ -102,7 +103,7 @@ export function ConversationReplyEmail({
   const quoteDate = quotedPrevious ? formatQuoteDate(quotedPrevious.date) : ''
 
   return (
-    <Html>
+    <Html lang="fa" dir="rtl">
       <Head />
       <Preview>{preview}</Preview>
       <Body style={page}>
@@ -118,12 +119,12 @@ export function ConversationReplyEmail({
         <hr style={rule} />
 
         <Text style={footer}>
-          Reply to this email to continue the conversation
+          برای ادامه‌ی گفتگو به همین ایمیل پاسخ دهید
           {viewUrl ? (
             <>
               {' · '}
               <Link href={viewUrl} style={footerLink}>
-                View it online
+                مشاهده‌ی آنلاین
               </Link>
             </>
           ) : null}
@@ -131,9 +132,7 @@ export function ConversationReplyEmail({
 
         {quotedPrevious ? (
           <Text style={quote}>
-            On {quoteDate}
-            {quoteDate ? ', ' : ''}
-            {quotedPrevious.name} wrote:
+            در تاریخ {quoteDate}، {quotedPrevious.name} نوشت:
             <br />
             {quoteExcerpt(quotedPrevious.text)}
           </Text>

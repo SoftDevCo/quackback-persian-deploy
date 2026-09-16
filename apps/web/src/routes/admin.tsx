@@ -1,17 +1,29 @@
-import { Suspense } from 'react'
-import { createFileRoute, Outlet, useRouterState, useRouteContext } from '@tanstack/react-router'
+import { Suspense, lazy } from 'react'
+import {
+  createFileRoute,
+  Outlet,
+  redirect,
+  useNavigate,
+  useRouterState,
+  useRouteContext,
+} from '@tanstack/react-router'
 import { IntlProvider } from 'react-intl'
 import { useAdminPresence } from '@/lib/client/hooks/use-admin-presence'
 import { DEFAULT_LOCALE, loadMessages } from '@/lib/shared/i18n'
 import { fetchUserAvatar } from '@/lib/server/functions/portal'
 import { getLatestVersion, isNewerVersion } from '@/lib/server/functions/version'
 import { AdminSidebar } from '@/components/admin/admin-sidebar'
-import { PostModal } from '@/components/admin/feedback/post-modal'
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { Skeleton } from '@/components/ui/skeleton'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { UpdateBanner } from '@/components/admin/update-banner'
 import { PlanNoticeBanner } from '@/components/admin/plan-notice-banner'
 import { getPlanNotice } from '@/lib/server/functions/plan-notice'
 import { isProductEnabled } from '@/lib/shared/types/settings'
+
+const PostModal = lazy(() =>
+  import('@/components/admin/feedback/post-modal').then((m) => ({ default: m.PostModal }))
+)
 
 export const Route = createFileRoute('/admin')({
   beforeLoad: async ({ location }) => {
@@ -24,10 +36,19 @@ export const Route = createFileRoute('/admin')({
 
     // Only team members (admin, member roles) can access admin dashboard
     // Portal users (role='user') don't have access to this
-    const { requireWorkspaceRole } = await import('@/lib/server/functions/workspace-utils')
+    const [{ requireWorkspaceRole }, { shouldLockAdminToBillingFn }] = await Promise.all([
+      import('@/lib/server/functions/workspace-utils'),
+      import('@/lib/server/functions/billing'),
+    ])
+    // Role guard first: it throws a sign-in redirect. The billing helper's
+    // requireAuth() throws a plain Error, so racing the two can surface an
+    // error page for an unauthenticated visitor.
     const { user, principal, permissions } = await requireWorkspaceRole({
       data: { allowedRoles: ['admin', 'member'] },
     })
+    if (await shouldLockAdminToBillingFn({ data: { pathname: location.pathname } })) {
+      throw redirect({ href: '/admin/settings/billing' })
+    }
 
     return {
       user,
@@ -100,6 +121,27 @@ export const Route = createFileRoute('/admin')({
   component: AdminLayout,
 })
 
+function PostModalChunkFallback() {
+  const navigate = useNavigate()
+  const { pathname, search } = useRouterState({ select: (s) => s.location })
+  const close = () => {
+    const { post: _post, ...rest } = search as Record<string, unknown>
+    void navigate({ to: pathname, search: rest, replace: true })
+  }
+
+  return (
+    <Dialog open onOpenChange={(next) => !next && close()}>
+      <DialogContent className="flex h-[85vh] w-[95vw] flex-col gap-0 p-0 sm:w-[90vw] lg:max-w-5xl xl:max-w-6xl">
+        <DialogTitle className="sr-only">Edit post</DialogTitle>
+        <div className="flex h-full flex-col gap-3 p-6">
+          <Skeleton className="h-8 w-1/3 rounded-md" />
+          <Skeleton className="min-h-0 flex-1 rounded-lg" />
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function usePostIdFromUrl(): string | undefined {
   return useRouterState({
     select: (s) => {
@@ -136,7 +178,7 @@ function AdminLayout() {
 
   return (
     <IntlProvider locale={locale} defaultLocale={DEFAULT_LOCALE} messages={messages}>
-      <TooltipProvider delayDuration={0}>
+      <TooltipProvider delay={0}>
         <div className="flex h-screen bg-background">
           <AdminSidebar initialUserData={initialUserData} latestVersion={latestVersion} />
           <main className="flex-1 min-w-0 overflow-hidden sm:h-screen sm:py-2 sm:pr-2 sm:pl-1 p-0">
@@ -152,8 +194,8 @@ function AdminLayout() {
               </div>
             </div>
           </main>
-          {currentUser && feedbackEnabled && (
-            <Suspense>
+          {currentUser && feedbackEnabled && postId && (
+            <Suspense fallback={<PostModalChunkFallback />}>
               <PostModal postId={postId} currentUser={currentUser} />
             </Suspense>
           )}

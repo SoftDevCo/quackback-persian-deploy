@@ -24,26 +24,26 @@ export function NewSignInEmail({
   logoUrl,
 }: NewSignInEmailProps) {
   return (
-    <EmailLayout preview="A new sign-in was detected on your account" logoUrl={logoUrl}>
-      <Heading style={typography.h1}>New sign-in to your account</Heading>
+    <EmailLayout preview="ورود جدیدی به حساب شما شناسایی شد" logoUrl={logoUrl}>
+      <Heading style={typography.h1}>ورود جدید به حساب شما</Heading>
       <Text style={typography.text}>
         {workspaceName
-          ? `Someone just signed in to your ${workspaceName} account on a device we haven't seen before.`
-          : 'Someone just signed in to your account on a device we haven’t seen before.'}
+          ? `شخصی با دستگاهی که قبلاً ندیده‌ایم، به حساب ${workspaceName} شما وارد شده است.`
+          : 'شخصی با دستگاهی که قبلاً ندیده‌ایم، به حساب شما وارد شده است.'}
       </Text>
 
       <Section style={utils.codeBox}>
         <Text style={typography.text}>
-          <strong>When:</strong> {occurredAt}
+          <strong>زمان:</strong> {occurredAt}
         </Text>
         {ipAddress ? (
           <Text style={typography.text}>
-            <strong>IP:</strong> {ipAddress}
+            <strong>نشانی IP:</strong> {ipAddress}
           </Text>
         ) : null}
         {userAgent ? (
           <Text style={typography.text}>
-            <strong>Device:</strong> {userAgent}
+            <strong>دستگاه:</strong> {userAgent}
           </Text>
         ) : null}
       </Section>
@@ -51,13 +51,13 @@ export function NewSignInEmail({
       <Hr style={{ margin: '24px 0', borderColor: '#e5e7eb' }} />
 
       <Text style={typography.text}>
-        If that was you, no action needed. If it wasn’t, change your password and revoke any other
-        active sessions.
+        اگر این ورود توسط شما انجام شده است، اقدامی لازم نیست. اگر شما نبوده‌اید، رمز عبور خود را
+        تغییر دهید و نشست‌های فعال دیگر را لغو کنید.
       </Text>
 
       <TransactionalFooter>
-        You&apos;re receiving this because a new sign-in was detected on your account. These alerts
-        are required and can&apos;t be disabled.
+        این ایمیل به دلیل شناسایی ورود جدید به حساب شما ارسال شده است. این هشدار امنیتی ضروری است
+        و قابل غیرفعال‌کردن نیست.
       </TransactionalFooter>
     </EmailLayout>
   )

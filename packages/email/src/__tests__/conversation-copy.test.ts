@@ -7,11 +7,11 @@ import {
 } from '../conversation-copy'
 
 describe('conversationReplySubject', () => {
-  it('prefixes Re: and never doubles it', () => {
-    expect(conversationReplySubject('Billing overcharge')).toBe('Re: Billing overcharge')
-    expect(conversationReplySubject('Re: Billing overcharge')).toBe('Re: Billing overcharge')
-    expect(conversationReplySubject('RE: re: Billing overcharge')).toBe('Re: Billing overcharge')
-    expect(conversationReplySubject('  re:   Invoice  ')).toBe('Re: Invoice')
+  it('prefixes the Persian reply label and never doubles it', () => {
+    expect(conversationReplySubject('Billing overcharge')).toBe('پاسخ: Billing overcharge')
+    expect(conversationReplySubject('Re: Billing overcharge')).toBe('پاسخ: Billing overcharge')
+    expect(conversationReplySubject('RE: re: Billing overcharge')).toBe('پاسخ: Billing overcharge')
+    expect(conversationReplySubject('  re:   Invoice  ')).toBe('پاسخ: Invoice')
   })
 
   it('returns null when there is no usable subject', () => {
@@ -42,7 +42,7 @@ describe('conversationMessageCopy', () => {
       conversationSubject: 'Re: Billing overcharge',
       channel: 'email',
     })
-    expect(copy.subject).toBe('Re: Billing overcharge')
+    expect(copy.subject).toBe('پاسخ: Billing overcharge')
     expect(copy.useHumanTemplate).toBe(true)
   })
 
@@ -53,8 +53,8 @@ describe('conversationMessageCopy', () => {
       workspaceName: 'Acme',
       channel: 'messenger',
     })
-    expect(copy.subject).toBe('New reply from Acme')
-    expect(copy.heading).toBe('New reply from Acme')
+    expect(copy.subject).toBe('پاسخ جدید از Acme')
+    expect(copy.heading).toBe('پاسخ جدید از Acme')
     expect(copy.useHumanTemplate).toBe(false)
   })
 
@@ -66,7 +66,7 @@ describe('conversationMessageCopy', () => {
       conversationSubject: 'Widget offline',
       channel: 'messenger',
     })
-    expect(copy.heading).toBe('Re: Widget offline')
+    expect(copy.heading).toBe('پاسخ: Widget offline')
     expect(copy.useHumanTemplate).toBe(false)
   })
 
@@ -83,10 +83,10 @@ describe('conversationMessageCopy', () => {
       workspaceName: 'Acme',
       isFirstMessage: false,
     })
-    expect(first.intro).toBe('Priya started a conversation in Acme.')
-    expect(follow.intro).toBe('Priya sent a new message in Acme.')
+    expect(first.intro).toBe('Priya در Acme یک گفتگو را آغاز کرد.')
+    expect(follow.intro).toBe('Priya در Acme پیام جدیدی فرستاد.')
     expect(follow.useHumanTemplate).toBe(false)
-    expect(first.subject).toBe('Priya: New message')
+    expect(first.subject).toBe('Priya: پیام جدید')
   })
 
   it('forwards the visitor name and subject on team alerts', () => {

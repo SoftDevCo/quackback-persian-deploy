@@ -13,12 +13,13 @@ const CSAT_FACES = ['😞', '🙁', '😐', '🙂', '😄'] as const
 const page: React.CSSProperties = {
   backgroundColor: '#ffffff',
   color: '#1d2939',
-  fontFamily:
-    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  fontFamily: 'Vazirmatn, Vazir, Tahoma, Arial, sans-serif',
   fontSize: '15px',
   lineHeight: '1.65',
   margin: 0,
   padding: '24px 8px 32px',
+  direction: 'rtl',
+  textAlign: 'right',
 }
 
 const muted: React.CSSProperties = {
@@ -36,15 +37,15 @@ export function ConversationClosedEmail({
 }: ConversationClosedEmailProps) {
   const intro =
     variant === 'auto_closed'
-      ? "This conversation was closed because we haven't heard back from you."
-      : `${workspaceName} marked this conversation as resolved.`
+      ? 'این گفتگو به دلیل دریافت‌نکردن پاسخ از شما بسته شد.'
+      : `${workspaceName} این گفتگو را حل‌شده علامت‌گذاری کرد.`
   const followUp =
     variant === 'auto_closed'
-      ? 'Need anything else? Just reply to this email and the conversation will reopen.'
-      : 'Not sorted? Just reply to this email and the conversation will reopen.'
+      ? 'هنوز به کمک نیاز دارید؟ کافی است به همین ایمیل پاسخ دهید تا گفتگو دوباره باز شود.'
+      : 'اگر مشکل برطرف نشده است، به همین ایمیل پاسخ دهید تا گفتگو دوباره باز شود.'
 
   return (
-    <Html>
+    <Html lang="fa" dir="rtl">
       <Head />
       <Preview>{intro}</Preview>
       <Body style={page}>
@@ -56,7 +57,7 @@ export function ConversationClosedEmail({
         {ratingUrls ? (
           <>
             <Text style={{ margin: '20px 0 8px', color: '#1d2939', fontSize: '15px' }}>
-              {csatPrompt || 'How did we do?'}
+              {csatPrompt || 'عملکرد ما چطور بود؟'}
             </Text>
             <Text style={{ margin: '0 0 16px', fontSize: '28px', letterSpacing: '8px' }}>
               {CSAT_FACES.map((face, i) => (
@@ -71,7 +72,7 @@ export function ConversationClosedEmail({
         {viewUrl ? (
           <Text style={muted}>
             <a href={viewUrl} style={{ color: '#667085' }}>
-              View it online
+              مشاهده‌ی آنلاین
             </a>
           </Text>
         ) : null}
