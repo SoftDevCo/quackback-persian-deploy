@@ -114,3 +114,12 @@ export const fetchPlanUsageFn = createServerFn({ method: 'GET' }).handler(async 
     },
   ])
 })
+
+/**
+ * The maintained self-hosted fork does not include the cloud downgrade-lock
+ * storage layer used by the newer admin route. Keep the route compatible and
+ * unlocked until that complete billing feature is available in this fork.
+ */
+export const shouldLockAdminToBillingFn = createServerFn({ method: 'GET' })
+  .validator((data: { pathname: string }) => data)
+  .handler(async () => false)
