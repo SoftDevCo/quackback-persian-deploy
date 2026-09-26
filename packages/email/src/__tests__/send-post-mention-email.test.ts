@@ -64,7 +64,7 @@ describe('sendPostMentionEmail', () => {
       from: string
     }
     expect(call.to).toBe('user@example.com')
-    expect(call.subject).toBe('Alex mentioned you in "Why we should add dark mode"')
+    expect(call.subject).toBe('Alex شما را در «Why we should add dark mode» نام برد')
     expect(call.html).toContain('Hey, take a look at this proposal.')
     expect(call.html).toContain('Alex')
   })
@@ -82,6 +82,6 @@ describe('sendPostMentionEmail', () => {
 
     expect(sendMailMock).toHaveBeenCalledTimes(1)
     const call = sendMailMock.mock.calls[0][0] as { subject: string }
-    expect(call.subject).toBe('Anonymous user mentioned you in "Dark mode"')
+    expect(call.subject).toBe('کاربر ناشناس شما را در «Dark mode» نام برد')
   })
 })

@@ -24,7 +24,12 @@ import { OttHandler } from '@/components/shared/ott-handler'
 import { VisitorBeacon } from '@/components/shared/visitor-beacon'
 import { ProductAnalytics } from '@/components/shared/product-analytics'
 import { documentLocale, htmlLangDir } from '@/lib/shared/document-locale'
-import { normalizeLocale, DEFAULT_LOCALE, type SupportedLocale } from '@/lib/shared/i18n'
+import {
+  normalizeLocale,
+  DEFAULT_LOCALE,
+  PERSIAN_DEFAULT_LOCALE,
+  type SupportedLocale,
+} from '@/lib/shared/i18n'
 import { useWorkspaceSettings } from '@/lib/client/hooks/use-root-context'
 
 // The toast renderer is its own chunk: the root module ships with every
@@ -262,15 +267,16 @@ function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
   // out LTR until hydration). Decided from the matched route IDs so only
   // actually-localized routes are tagged; see documentLocale. On the widget a
   // valid `?locale=` override wins, matching what the widget itself renders.
+  const routeIds = useRouterState({ select: (s) => s.matches.map((m) => m.routeId) })
   const widgetOverride =
     isWidgetRoute && widgetLocaleParam ? normalizeLocale(widgetLocaleParam) : null
-  const resolvedLocale = widgetOverride ?? acceptLanguageLocale ?? DEFAULT_LOCALE
+  const hasPersianUi =
+    routeIds.includes('/_portal') ||
+    routeIds.some((id) => ['/auth/recovery', '/auth/reset-password', '/widget'].includes(id))
+  const resolvedLocale =
+    widgetOverride ?? (hasPersianUi ? PERSIAN_DEFAULT_LOCALE : acceptLanguageLocale ?? DEFAULT_LOCALE)
   const locale = useRouterState({
-    select: (s) =>
-      documentLocale(
-        s.matches.map((m) => m.routeId),
-        resolvedLocale
-      ),
+    select: (s) => documentLocale(s.matches.map((m) => m.routeId), resolvedLocale),
   })
   const { lang, dir } = htmlLangDir(locale)
 

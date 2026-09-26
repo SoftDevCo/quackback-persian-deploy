@@ -117,7 +117,7 @@ export const Route = createFileRoute('/admin')({
       isProductEnabled(context.settings?.featureFlags, 'feedback') &&
       (context.permissions ?? []).includes(PERMISSIONS.POST_APPROVE)
 
-    const locale = context.acceptLanguageLocale ?? DEFAULT_LOCALE
+    const locale = DEFAULT_LOCALE
     const [avatarData, latestRelease, planNotice, messages] = await Promise.all([
       fetchUserAvatar({
         data: { userId: user.id, fallbackImageUrl: user.image },
