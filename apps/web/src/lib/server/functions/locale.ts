@@ -1,5 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
-import { DEFAULT_LOCALE, loadPortalMessages, type SupportedLocale } from '@/lib/shared/i18n'
+import { PERSIAN_DEFAULT_LOCALE, loadPortalMessages, type SupportedLocale } from '@/lib/shared/i18n'
 
 /**
  * Resolve the portal locale from the configured Persian default.
@@ -9,7 +9,7 @@ import { DEFAULT_LOCALE, loadPortalMessages, type SupportedLocale } from '@/lib/
  * it `useIntl`/`<FormattedMessage>` in the auth forms would have no provider.
  */
 export const getPortalLocaleFn = createServerFn({ method: 'GET' }).handler(async () => {
-  return DEFAULT_LOCALE
+  return PERSIAN_DEFAULT_LOCALE
 })
 
 /**

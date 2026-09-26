@@ -28,7 +28,12 @@ import { DefaultErrorPage } from '@/components/shared/error-page'
 import { OttHandler } from '@/components/shared/ott-handler'
 import { VisitorBeacon } from '@/components/shared/visitor-beacon'
 import { documentLocale, htmlLangDir } from '@/lib/shared/document-locale'
-import { normalizeLocale, DEFAULT_LOCALE, type SupportedLocale } from '@/lib/shared/i18n'
+import {
+  normalizeLocale,
+  DEFAULT_LOCALE,
+  PERSIAN_DEFAULT_LOCALE,
+  type SupportedLocale,
+} from '@/lib/shared/i18n'
 import {
   applyVisualThemeToDocument,
   visualThemeAttribute,
@@ -257,7 +262,7 @@ function VisualThemeSync({ visualTheme }: { visualTheme: VisualTheme }) {
 }
 
 function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
-  const { settings, themeCookie, prefersColorScheme, visualTheme } =
+  const { settings, themeCookie, prefersColorScheme, acceptLanguageLocale, visualTheme } =
     Route.useRouteContext()
   const resolvedVisualTheme: VisualTheme =
     visualTheme === 'refined' || settings?.visualTheme === 'refined' ? 'refined' : 'legacy'
@@ -314,7 +319,11 @@ function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
   // valid `?locale=` override wins, matching what the widget itself renders.
   const widgetOverride =
     routeIds.includes('/widget') && widgetLocaleParam ? normalizeLocale(widgetLocaleParam) : null
-  const resolvedLocale = widgetOverride ?? DEFAULT_LOCALE
+  const hasPersianUi =
+    routeIds.includes('/_portal') ||
+    routeIds.some((id) => ['/auth/recovery', '/auth/reset-password', '/widget'].includes(id))
+  const resolvedLocale =
+    widgetOverride ?? (hasPersianUi ? PERSIAN_DEFAULT_LOCALE : acceptLanguageLocale ?? DEFAULT_LOCALE)
   const { lang, dir } = htmlLangDir(documentLocale(routeIds, resolvedLocale))
 
   // suppressHydrationWarning stays: next-themes' inline script sets the theme

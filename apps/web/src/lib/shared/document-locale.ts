@@ -24,7 +24,7 @@ export function documentLocale(
 ): SupportedLocale {
   const localized =
     routeIds.includes(PORTAL_LAYOUT_ROUTE_ID) ||
-    routeIds.some((id) => LOCALIZED_ROUTE_IDS.has(id) || id.startsWith('/onboarding'))
+    routeIds.some((id) => LOCALIZED_ROUTE_IDS.has(id))
   return localized ? resolved : 'en'
 }
 

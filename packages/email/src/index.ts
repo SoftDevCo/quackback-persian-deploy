@@ -1260,10 +1260,6 @@ function persianDueLabel(label: string | null | undefined, fallback = 'به‌ز
   return `${match[1].replace(/\d/g, (digit) => '۰۱۲۳۴۵۶۷۸۹'[Number(digit)])} ${units[match[2].toLowerCase()]} دیگر`
 }
 
-function capitalize(s: string): string {
-  return s.length === 0 ? s : s[0].toUpperCase() + s.slice(1)
-}
-
 /** Send one of the seven ticket lifecycle emails (single template + copy map). */
 export async function sendTicketEventEmail(
   params: SendTicketEventEmailParams

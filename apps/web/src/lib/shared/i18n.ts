@@ -1,4 +1,5 @@
-export const DEFAULT_LOCALE = 'fa' as const
+export const DEFAULT_LOCALE = 'en' as const
+export const PERSIAN_DEFAULT_LOCALE = 'fa' as const
 
 export const SUPPORTED_LOCALES = [
   'en',
