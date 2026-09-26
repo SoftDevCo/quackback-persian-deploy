@@ -1,13 +1,12 @@
-import { DEFAULT_LOCALE, isRtlLocale, isRtlForced, type SupportedLocale } from './i18n'
+import { isRtlLocale, isRtlForced, type SupportedLocale } from './i18n'
 
 // The portal layout route. Every page rendered under it (`/`, `/hc`, `/roadmap`,
 // `/settings`, ...) is wrapped in PortalIntlProvider, so it's localized.
 const PORTAL_LAYOUT_ROUTE_ID = '/_portal'
 
 // Standalone routes (outside the portal layout) that render translated content
-// from their first paint. Everything NOT in this set and NOT under the portal
-// layout renders hard-coded English: the admin app, onboarding, and the auth
-// utility pages like /auth/two-factor and /admin/login.
+// from their first paint. The admin app and its login pages intentionally stay
+// English and LTR, regardless of the Persian portal default.
 const LOCALIZED_ROUTE_IDS = new Set(['/auth/recovery', '/auth/reset-password', '/widget'])
 
 /**
@@ -25,8 +24,8 @@ export function documentLocale(
 ): SupportedLocale {
   const localized =
     routeIds.includes(PORTAL_LAYOUT_ROUTE_ID) ||
-    routeIds.some((id) => LOCALIZED_ROUTE_IDS.has(id) || id.startsWith('/admin/automation'))
-  return localized ? resolved : DEFAULT_LOCALE
+    routeIds.some((id) => LOCALIZED_ROUTE_IDS.has(id) || id.startsWith('/onboarding'))
+  return localized ? resolved : 'en'
 }
 
 /**

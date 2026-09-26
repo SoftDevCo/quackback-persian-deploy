@@ -257,7 +257,7 @@ function VisualThemeSync({ visualTheme }: { visualTheme: VisualTheme }) {
 }
 
 function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
-  const { settings, themeCookie, prefersColorScheme, acceptLanguageLocale, visualTheme } =
+  const { settings, themeCookie, prefersColorScheme, visualTheme } =
     Route.useRouteContext()
   const resolvedVisualTheme: VisualTheme =
     visualTheme === 'refined' || settings?.visualTheme === 'refined' ? 'refined' : 'legacy'
@@ -314,7 +314,7 @@ function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
   // valid `?locale=` override wins, matching what the widget itself renders.
   const widgetOverride =
     routeIds.includes('/widget') && widgetLocaleParam ? normalizeLocale(widgetLocaleParam) : null
-  const resolvedLocale = widgetOverride ?? acceptLanguageLocale ?? DEFAULT_LOCALE
+  const resolvedLocale = widgetOverride ?? DEFAULT_LOCALE
   const { lang, dir } = htmlLangDir(documentLocale(routeIds, resolvedLocale))
 
   // suppressHydrationWarning stays: next-themes' inline script sets the theme
