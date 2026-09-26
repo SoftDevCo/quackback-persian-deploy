@@ -40,6 +40,7 @@ vi.mock('@/lib/shared/i18n', () => ({
   loadMessages: vi.fn(async () => ({})),
   loadPortalMessages: vi.fn(async () => ({})),
   DEFAULT_LOCALE: 'en',
+  PERSIAN_DEFAULT_LOCALE: 'fa',
   SUPPORTED_LOCALES: ['en', 'de', 'fr', 'es', 'ar', 'ru', 'pt-br', 'zh-cn', 'zh-tw'],
 }))
 vi.mock('@/lib/shared/types/settings', () => ({

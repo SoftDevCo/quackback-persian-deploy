@@ -13,17 +13,17 @@ import { onIntlError } from '@/lib/client/intl-error'
  * covered too, and there is exactly one provider for the flow (the same shape
  * `/admin` uses for the admin tree).
  *
- * This admin-side flow keeps its English default instead of inheriting the
- * Persian default used by the public portal.
+ * The locale comes from the request when available; otherwise this admin-side
+ * flow uses the platform's English default rather than the public portal's
+ * Persian default.
  *
  * The document's `<html lang>` deliberately stays on the default here (see
- * `documentLocale`): no catalog carries `onboarding.` keys yet, so the wizard
- * renders its inline English defaults and advertising another language would be
- * a lie. When translated onboarding copy lands, add this tree there too.
+ * `documentLocale`): the wizard's copy remains English, so advertising another
+ * language would be a lie.
  */
 export const Route = createFileRoute('/onboarding')({
-  loader: async () => {
-    const locale = DEFAULT_LOCALE
+  loader: async ({ context }) => {
+    const locale = context.acceptLanguageLocale ?? DEFAULT_LOCALE
     return { locale, messages: await loadOnboardingMessages(locale) }
   },
   component: OnboardingRoot,
