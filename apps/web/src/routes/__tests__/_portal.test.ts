@@ -41,7 +41,7 @@ vi.mock('@/lib/shared/i18n', () => ({
   loadPortalMessages: vi.fn(async () => ({})),
   DEFAULT_LOCALE: 'en',
   PERSIAN_DEFAULT_LOCALE: 'fa',
-  SUPPORTED_LOCALES: ['en', 'de', 'fr', 'es', 'ar', 'ru', 'pt-br', 'zh-cn', 'zh-tw'],
+  SUPPORTED_LOCALES: ['en', 'de', 'fr', 'es', 'ar', 'fa', 'ru', 'pt-br', 'zh-cn', 'zh-tw'],
 }))
 vi.mock('@/lib/shared/types/settings', () => ({
   DEFAULT_PORTAL_CONFIG: { oauth: {}, access: {} },
@@ -209,6 +209,6 @@ describe('_portal loader — portal-visibility gate + access.denied audit', () =
 
     expect(result?.gate?.type).toBe('portal-access-gate')
     // Locale carried so the gate's auth dialog renders under PortalIntlProvider.
-    expect(result?.gate?.locale).toBe('en')
+    expect(result?.gate?.locale).toBe('fa')
   })
 })

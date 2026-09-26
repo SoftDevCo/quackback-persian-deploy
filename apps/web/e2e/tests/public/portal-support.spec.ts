@@ -45,8 +45,8 @@ test.describe('Portal Support tab', { tag: '@smoke' }, () => {
 
     // A fresh user has no conversations: the empty state renders.
     await page.goto('/support')
-    await expect(page.getByRole('heading', { name: 'Support' })).toBeVisible({ timeout: 10000 })
-    await expect(page.getByText('No conversations yet')).toBeVisible({ timeout: 10000 })
+    await expect(page.getByRole('heading', { name: 'پشتیبانی کنید' })).toBeVisible({ timeout: 10000 })
+    await expect(page.getByText('هنوز مکالمه ای وجود ندارد')).toBeVisible({ timeout: 10000 })
 
     // Seed a conversation owned by this user and confirm list + thread render.
     const seeded = seedConversation(`E2E portal conversation ${Date.now()}`, email)
