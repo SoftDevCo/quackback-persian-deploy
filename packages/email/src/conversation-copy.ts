@@ -7,12 +7,12 @@
 
 export type ConversationMailDirection = 'agent_reply' | 'visitor_message' | 'agent_started'
 
-/** Strip any leading `Re:` tokens (any case, repeated) and prefix a single `Re:`. */
+/** Strip any leading reply prefixes and prefix a single Persian reply marker. */
 export function conversationReplySubject(subject: string | null | undefined): string | null {
   if (subject == null) return null
-  const stripped = subject.replace(/^\s*(re:\s*)+/i, '').trim()
+  const stripped = subject.replace(/^\s*((re:|پاسخ:)\s*)+/i, '').trim()
   if (!stripped) return null
-  return `Re: ${stripped}`
+  return `پاسخ: ${stripped}`
 }
 
 /** Human correspondence template: email-channel agent replies and agent-started mail. */
@@ -32,9 +32,9 @@ export function teamAlertSubject(
   preview?: string | null
 ): string {
   const topic =
-    subject?.replace(/^\s*(re:\s*)+/i, '').trim() ||
+    subject?.replace(/^\s*((re:|پاسخ:)\s*)+/i, '').trim() ||
     preview?.replace(/\s+/g, ' ').trim().slice(0, 80) ||
-    'New message'
+    'پیام جدید'
   return `${visitorName}: ${topic}`
 }
 
@@ -68,30 +68,30 @@ export function conversationMessageCopy(opts: {
   if (direction === 'visitor_message') {
     const intro =
       opts.isFirstMessage === true
-        ? `${senderName} started a conversation in ${workspaceName}.`
-        : `${senderName} sent a new message in ${workspaceName}.`
+        ? `${senderName} در ${workspaceName} یک گفتگو را آغاز کرد.`
+        : `${senderName} در ${workspaceName} پیام جدیدی فرستاد.`
     return {
       subject: teamAlertSubject(senderName, opts.conversationSubject, opts.preview),
-      heading: 'New message',
+      heading: 'پیام جدید',
       intro,
-      ctaLabel: 'Open inbox',
-      reason: 'You received this email because you are a member of this workspace.',
+      ctaLabel: 'بازکردن صندوق ورودی',
+      reason: 'این ایمیل به این دلیل برای شما ارسال شده که عضو این فضای کاری هستید.',
       useHumanTemplate: false,
     }
   }
 
   const isReply = direction === 'agent_reply'
-  const generic = isReply ? `New reply from ${workspaceName}` : `New message from ${workspaceName}`
+  const generic = isReply ? `پاسخ جدید از ${workspaceName}` : `پیام جدید از ${workspaceName}`
   return {
     subject: forwarded ?? generic,
     heading: forwarded ?? generic,
     intro: isReply
-      ? `${senderName} replied to your conversation with ${workspaceName}.`
-      : `${senderName} from ${workspaceName} sent you a message.`,
-    ctaLabel: 'View conversation',
+      ? `${senderName} به گفتگوی شما با ${workspaceName} پاسخ داده است.`
+      : `${senderName} از ${workspaceName} برای شما پیامی فرستاده است.`,
+    ctaLabel: 'مشاهده‌ی گفتگو',
     reason: isReply
-      ? 'You received this email because you have an open conversation with this team.'
-      : `You received this email because ${workspaceName} sent you a message.`,
+      ? 'این ایمیل به این دلیل برای شما ارسال شده که با این تیم گفتگوی بازی دارید.'
+      : `این ایمیل به این دلیل برای شما ارسال شده که ${workspaceName} برای شما پیامی فرستاده است.`,
     useHumanTemplate,
   }
 }

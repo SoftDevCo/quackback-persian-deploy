@@ -32,31 +32,31 @@ export function NewSignInEmail({
   logoUrl,
 }: NewSignInEmailProps) {
   return (
-    <EmailLayout preview="A new sign-in was detected on your account" logoUrl={logoUrl}>
-      <Heading style={typography.h1}>New sign-in to your account</Heading>
+    <EmailLayout preview="ورود جدیدی به حساب شما شناسایی شد" logoUrl={logoUrl}>
+      <Heading style={typography.h1}>ورود جدید به حساب شما</Heading>
       <Text style={typography.text}>
         {workspaceName
-          ? `Someone just signed in to your ${workspaceName} account on a device we haven't seen before.`
-          : 'Someone just signed in to your account on a device we haven’t seen before.'}
+          ? `شخصی با دستگاهی که قبلاً ندیده‌ایم، به حساب ${workspaceName} شما وارد شده است.`
+          : 'شخصی با دستگاهی که قبلاً ندیده‌ایم، به حساب شما وارد شده است.'}
       </Text>
 
       <Section style={utils.codeBox}>
         <Text style={typography.text}>
-          <strong>When:</strong> {occurredAt}
+          <strong>زمان:</strong> {occurredAt}
         </Text>
         {ipAddress ? (
           <Text style={typography.text}>
-            <strong>IP:</strong> {ipAddress}
+            <strong>نشانی IP:</strong> {ipAddress}
           </Text>
         ) : null}
         {location ? (
           <Text style={typography.text}>
-            <strong>Location:</strong> {location}
+            <strong>مکان:</strong> {location}
           </Text>
         ) : null}
         {userAgent ? (
           <Text style={typography.text}>
-            <strong>Device:</strong> {userAgent}
+            <strong>دستگاه:</strong> {userAgent}
           </Text>
         ) : null}
       </Section>
@@ -65,27 +65,27 @@ export function NewSignInEmail({
 
       <Text style={typography.text}>
         {ssoEnforced ? (
-          'If that was you, no action needed. If it wasn’t, change your password at your identity provider and ask a workspace admin to sign out other sessions.'
+          'اگر این ورود را شما انجام داده‌اید، نیازی به اقدام نیست. در غیر این صورت، رمز عبور را در سامانهٔ هویت خود تغییر دهید و از مدیر فضای کاری بخواهید نشست‌های دیگر را ببندد.'
         ) : (
           <>
-            If that was you, no action needed. If it wasn’t,{' '}
+            اگر این ورود را شما انجام داده‌اید، نیازی به اقدام نیست. در غیر این صورت،{' '}
             {settingsUrl ? (
               <>
                 <Link href={settingsUrl} style={utils.link}>
-                  set or change your password
+                  تعیین یا تغییر رمز عبور
                 </Link>{' '}
-                from your profile settings — this signs out other sessions.
+                را از تنظیمات نمایه انجام دهید؛ این کار نشست‌های دیگر را می‌بندد.
               </>
             ) : (
-              'set or change your password from your profile settings — this signs out other sessions.'
+              'رمز عبور را از تنظیمات نمایه تعیین یا تغییر دهید؛ این کار نشست‌های دیگر را می‌بندد.'
             )}
           </>
         )}
       </Text>
 
       <TransactionalFooter>
-        You&apos;re receiving this because a new sign-in was detected on your account. These alerts
-        are required and can&apos;t be disabled.
+        این ایمیل به‌دلیل شناسایی ورود جدید به حساب شما ارسال شده است. این هشدار امنیتی ضروری است و
+        نمی‌توان آن را غیرفعال کرد.
       </TransactionalFooter>
     </EmailLayout>
   )

@@ -58,14 +58,14 @@ describe('SignupNotAllowedEmail', () => {
   it('says what to do next rather than only that something failed', async () => {
     const html = await render(SignupNotAllowedEmail({ workspaceName: 'Acme' }))
 
-    expect(html).toMatch(/not accepting new accounts/i)
-    expect(html).toMatch(/invite/i)
+    expect(html).toContain('ثبت‌نام حساب جدید پذیرفته نمی‌شود')
+    expect(html).toContain('دعوت')
   })
 
   it('names the workspace when it knows it, and stays readable when it does not', async () => {
     expect(await render(SignupNotAllowedEmail({ workspaceName: 'Acme' }))).toContain('Acme')
     const anonymous = await render(SignupNotAllowedEmail({}))
-    expect(anonymous).toMatch(/this workspace/i)
+    expect(anonymous).toContain('این فضا')
     expect(anonymous).not.toContain('undefined')
   })
 

@@ -29,14 +29,14 @@ export function PostMentionEmail({
 
   return (
     <EmailLayout
-      preview={`${displayName} mentioned you in "${postTitle}"`}
+      preview={`${displayName} شما را در «${postTitle}» ذکر کرده است`}
       logoUrl={logoUrl}
       logoAlt={workspaceName}
     >
       {/* Content */}
-      <Heading style={typography.h1}>You were mentioned</Heading>
+      <Heading style={typography.h1}>نام شما ذکر شده است</Heading>
       <Text style={typography.text}>
-        {displayName} mentioned you in {postTitle}.
+        {displayName} نام شما را در {postTitle} ذکر کرده است.
       </Text>
 
       {/* Post Title */}
@@ -56,7 +56,7 @@ export function PostMentionEmail({
             color: colors.textMuted,
           }}
         >
-          Feedback
+          بازخورد
         </Text>
         <Text style={{ ...typography.text, marginTop: '0', marginBottom: '0', fontWeight: '600' }}>
           {postTitle}
@@ -85,20 +85,20 @@ export function PostMentionEmail({
       {/* CTA Button */}
       <Section style={{ textAlign: 'center', marginTop: '32px', marginBottom: '32px' }}>
         <Button style={button.primary} href={postUrl}>
-          View Feedback
+          مشاهده‌ی بازخورد
         </Button>
       </Section>
 
       {/* Footer */}
       {unsubscribeUrl ? (
         <NotificationFooter
-          reason={`You received this email because you were mentioned in ${workspaceName}.`}
+          reason={`این ایمیل به این دلیل برای شما ارسال شده که نام‌تان در ${workspaceName} ذکر شده است.`}
           unsubscribeUrl={unsubscribeUrl}
           preferencesUrl={preferencesUrl}
         />
       ) : (
         <Text style={typography.footer}>
-          You received this email because you were mentioned in {workspaceName}.
+          این ایمیل به این دلیل برای شما ارسال شده که نام‌تان در {workspaceName} ذکر شده است.
         </Text>
       )}
     </EmailLayout>

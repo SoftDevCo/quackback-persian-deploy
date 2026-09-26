@@ -42,7 +42,7 @@ export function EmailLayout({
   const fromContext = useEmailShowPoweredBy()
   const showPoweredBy = showPoweredByOverride ?? fromContext
   return (
-    <Html>
+    <Html lang="fa" dir="rtl">
       <Head />
       <Preview>{preview}</Preview>
       <Body style={layout.main}>
@@ -67,7 +67,7 @@ export function EmailLayout({
             {showPoweredBy ? (
               <Text style={typography.footer}>
                 <Link href="https://quackback.io" style={{ ...utils.link, fontSize: '13px' }}>
-                  Powered by Quackback
+                  ساخته‌شده با کوئک‌بک
                 </Link>
               </Text>
             ) : null}
@@ -87,7 +87,7 @@ export function TransactionalFooter({ children }: { children: React.ReactNode })
 export function NotificationFooter({
   reason,
   unsubscribeUrl,
-  unsubscribeLabel = 'Unsubscribe from this post',
+  unsubscribeLabel = 'لغو دریافت اعلان‌های این مطلب',
   preferencesUrl,
 }: {
   reason: string
@@ -106,7 +106,7 @@ export function NotificationFooter({
         <>
           {' · '}
           <Link href={preferencesUrl} style={{ ...utils.link, fontSize: '13px' }}>
-            Manage notification preferences
+            مدیریت تنظیمات اعلان‌ها
           </Link>
         </>
       ) : null}

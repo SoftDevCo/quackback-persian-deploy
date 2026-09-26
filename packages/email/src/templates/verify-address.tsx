@@ -21,22 +21,22 @@ interface VerifyAddressEmailProps {
  * gives a cross-device link no chance to be intercepted.
  */
 export function VerifyAddressEmail({ code, workspaceName, logoUrl }: VerifyAddressEmailProps) {
-  const where = workspaceName ? ` for ${workspaceName}` : ''
+  const where = workspaceName ? ` برای ${workspaceName}` : ''
   return (
-    <EmailLayout preview={`Your verification code${where}`} logoUrl={logoUrl}>
-      <Heading style={{ ...typography.h1, textAlign: 'center' }}>Confirm your email</Heading>
+    <EmailLayout preview={`کد تأیید ایمیل${where}`} logoUrl={logoUrl}>
+      <Heading style={{ ...typography.h1, textAlign: 'center' }}>تأیید ایمیل</Heading>
       <Text style={{ ...typography.text, textAlign: 'center' }}>
-        Enter this code{where} to confirm this address. It expires in 10 minutes.
+        برای تأیید این نشانی، کد زیر را وارد کنید{where}. این کد تا ۱۰ دقیقه معتبر است.
       </Text>
       <Section style={utils.codeBox}>
         <Text style={utils.code}>{code}</Text>
       </Section>
       <Text style={{ ...typography.footer, textAlign: 'center' }}>
-        If you didn&apos;t ask for this, ignore it — nothing changes without the code.
+        اگر شما این درخواست را نداده‌اید، آن را نادیده بگیرید؛ بدون این کد هیچ تغییری انجام نمی‌شود.
       </Text>
       <TransactionalFooter>
-        You&rsquo;re receiving this because someone entered this address on an account. It
-        won&rsquo;t be used for anything until it&rsquo;s confirmed.
+        این ایمیل به این دلیل ارسال شده که شخصی این نشانی را در یک حساب وارد کرده است. تا زمان
+        تأیید، از این نشانی برای هیچ کاری استفاده نمی‌شود.
       </TransactionalFooter>
     </EmailLayout>
   )
