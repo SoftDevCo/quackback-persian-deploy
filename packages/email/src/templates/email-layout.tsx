@@ -10,6 +10,7 @@ import {
   Link,
 } from '@react-email/components'
 import { layout, branding, typography, utils, colors, DEFAULT_LOGO_URL } from './shared-styles'
+import { useEmailShowPoweredBy } from '../powered-by'
 
 interface EmailLayoutProps {
   preview: string
@@ -17,6 +18,11 @@ interface EmailLayoutProps {
   logoAlt?: string
   children: React.ReactNode
   footer?: React.ReactNode
+  /**
+   * Override the process-wide Powered-by flag. Capability-free templates
+   * (no link, no code, no token) pass false so the footer cannot add an anchor.
+   */
+  showPoweredBy?: boolean
 }
 
 /**
@@ -31,9 +37,12 @@ export function EmailLayout({
   logoAlt = 'Quackback',
   children,
   footer,
+  showPoweredBy: showPoweredByOverride,
 }: EmailLayoutProps) {
+  const fromContext = useEmailShowPoweredBy()
+  const showPoweredBy = showPoweredByOverride ?? fromContext
   return (
-    <Html lang="fa" dir="rtl">
+    <Html>
       <Head />
       <Preview>{preview}</Preview>
       <Body style={layout.main}>
@@ -55,6 +64,13 @@ export function EmailLayout({
 
             {/* Footer */}
             {footer}
+            {showPoweredBy ? (
+              <Text style={typography.footer}>
+                <Link href="https://quackback.io" style={{ ...utils.link, fontSize: '13px' }}>
+                  Powered by Quackback
+                </Link>
+              </Text>
+            ) : null}
           </Container>
         </Section>
       </Body>
@@ -71,7 +87,7 @@ export function TransactionalFooter({ children }: { children: React.ReactNode })
 export function NotificationFooter({
   reason,
   unsubscribeUrl,
-  unsubscribeLabel = 'لغو دریافت اعلان‌های این مطلب',
+  unsubscribeLabel = 'Unsubscribe from this post',
   preferencesUrl,
 }: {
   reason: string
@@ -90,7 +106,7 @@ export function NotificationFooter({
         <>
           {' · '}
           <Link href={preferencesUrl} style={{ ...utils.link, fontSize: '13px' }}>
-            مدیریت تنظیمات اعلان‌ها
+            Manage notification preferences
           </Link>
         </>
       ) : null}

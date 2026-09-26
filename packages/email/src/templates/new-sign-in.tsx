@@ -1,4 +1,4 @@
-import { Heading, Hr, Section, Text } from '@react-email/components'
+import { Heading, Hr, Link, Section, Text } from '@react-email/components'
 import { EmailLayout, TransactionalFooter } from './email-layout'
 import { typography, utils } from './shared-styles'
 
@@ -7,43 +7,56 @@ interface NewSignInEmailProps {
   occurredAt: string
   ipAddress?: string | null
   userAgent?: string | null
+  location?: string | null
+  settingsUrl?: string | null
+  /** When true, skip the password CTA — the profile page hides PasswordForm. */
+  ssoEnforced?: boolean
   logoUrl?: string
 }
 
 /**
- * "New device" sign-in notification — sent only on first-sight of a
- * (UA, /24 IP) combination for the recipient's account. The user is
- * already signed in by the time this lands; the alert is purely
- * informational with a recovery path if it wasn't them.
+ * "New device" sign-in notification — sent when an additional signed
+ * device cookie is seen for the recipient's account. Browser/OS, IP
+ * and location are shown as context; they are not the device identity.
+ * The user is already signed in by the time this lands; the alert is
+ * purely informational with a recovery path if it wasn't them.
  */
 export function NewSignInEmail({
   workspaceName,
   occurredAt,
   ipAddress,
   userAgent,
+  location,
+  settingsUrl,
+  ssoEnforced,
   logoUrl,
 }: NewSignInEmailProps) {
   return (
-    <EmailLayout preview="ورود جدیدی به حساب شما شناسایی شد" logoUrl={logoUrl}>
-      <Heading style={typography.h1}>ورود جدید به حساب شما</Heading>
+    <EmailLayout preview="A new sign-in was detected on your account" logoUrl={logoUrl}>
+      <Heading style={typography.h1}>New sign-in to your account</Heading>
       <Text style={typography.text}>
         {workspaceName
-          ? `شخصی با دستگاهی که قبلاً ندیده‌ایم، به حساب ${workspaceName} شما وارد شده است.`
-          : 'شخصی با دستگاهی که قبلاً ندیده‌ایم، به حساب شما وارد شده است.'}
+          ? `Someone just signed in to your ${workspaceName} account on a device we haven't seen before.`
+          : 'Someone just signed in to your account on a device we haven’t seen before.'}
       </Text>
 
       <Section style={utils.codeBox}>
         <Text style={typography.text}>
-          <strong>زمان:</strong> {occurredAt}
+          <strong>When:</strong> {occurredAt}
         </Text>
         {ipAddress ? (
           <Text style={typography.text}>
-            <strong>نشانی IP:</strong> {ipAddress}
+            <strong>IP:</strong> {ipAddress}
+          </Text>
+        ) : null}
+        {location ? (
+          <Text style={typography.text}>
+            <strong>Location:</strong> {location}
           </Text>
         ) : null}
         {userAgent ? (
           <Text style={typography.text}>
-            <strong>دستگاه:</strong> {userAgent}
+            <strong>Device:</strong> {userAgent}
           </Text>
         ) : null}
       </Section>
@@ -51,13 +64,28 @@ export function NewSignInEmail({
       <Hr style={{ margin: '24px 0', borderColor: '#e5e7eb' }} />
 
       <Text style={typography.text}>
-        اگر این ورود توسط شما انجام شده است، اقدامی لازم نیست. اگر شما نبوده‌اید، رمز عبور خود را
-        تغییر دهید و نشست‌های فعال دیگر را لغو کنید.
+        {ssoEnforced ? (
+          'If that was you, no action needed. If it wasn’t, change your password at your identity provider and ask a workspace admin to sign out other sessions.'
+        ) : (
+          <>
+            If that was you, no action needed. If it wasn’t,{' '}
+            {settingsUrl ? (
+              <>
+                <Link href={settingsUrl} style={utils.link}>
+                  set or change your password
+                </Link>{' '}
+                from your profile settings — this signs out other sessions.
+              </>
+            ) : (
+              'set or change your password from your profile settings — this signs out other sessions.'
+            )}
+          </>
+        )}
       </Text>
 
       <TransactionalFooter>
-        این ایمیل به دلیل شناسایی ورود جدید به حساب شما ارسال شده است. این هشدار امنیتی ضروری است
-        و قابل غیرفعال‌کردن نیست.
+        You&apos;re receiving this because a new sign-in was detected on your account. These alerts
+        are required and can&apos;t be disabled.
       </TransactionalFooter>
     </EmailLayout>
   )

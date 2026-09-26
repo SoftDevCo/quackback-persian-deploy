@@ -9,11 +9,12 @@
  *    genericOAuth runs with `pkce: true`, so the test flow mints a
  *    verifier/challenge pair to mirror that exactly.
  *
- *    The redirect_uri matches the provider's own production callback
- *    (`/api/auth/oauth2/callback/<registrationId>`) so admins register
- *    exactly one URL with their IdP. The auth catch-all intercepts test
- *    sign-ins by looking up `sso-test:<state>` in the KV store before handing
- *    off to Better-Auth — see `sso-test-callback.ts`.
+ *    The redirect_uri matches the provider's production callback
+ *    (`/api/auth/callback/<registrationId>`), the URL Better Auth 1.7
+ *    sends, so admins register exactly one URL with their IdP. The auth
+ *    catch-all intercepts test sign-ins by looking up `sso-test:<state>`
+ *    in the KV store before handing off to Better Auth — see
+ *    `sso-test-callback.ts`.
  *
  *  - getSsoTestResultFn: polls the `sso-test:result:<testId>` key
  *    written by the callback handler and returns the diagnostic
@@ -25,13 +26,17 @@ import { createServerFn } from '@tanstack/react-start'
 import { z } from 'zod'
 import { requireAuth } from './auth-helpers'
 import { PERMISSIONS } from '@/lib/shared/permissions'
+import { authProviderCallbackPath } from '@/lib/server/auth/auth-providers'
 import type { DiagnosticStep, HandshakeStage } from '@/lib/server/auth/sso-test-handshake'
+import type { ProfileOutcome } from '@/lib/shared/sso-profile-outcome'
+import type { SsoTestCaptureV2 } from '@/lib/shared/sso-test-capture'
 import type { JsonValue } from '@/lib/server/audit/log'
 import { authorizeRequestFor } from '@/lib/shared/oidc-request'
 import {
   allowsMissingEmail,
-  identitySourcesFor,
-  profileClaimFor,
+  claimMappingFor,
+  identityMappingFor,
+  type IdentityProviderClaimMapping,
 } from '@/lib/shared/oidc-claim-mapping'
 import { ssoTestResultKey, ssoTestSessionKey } from '@/lib/shared/sso-test-keys'
 import type { IdentityMapping } from '@/lib/server/auth/resolve-identity'
@@ -69,6 +74,8 @@ type TestSession = {
   requestedPrompt?: string
   /** Identity sources and claim paths — the same mapping production uses. */
   identityMapping?: IdentityMapping
+  /** Full mapping snapshotted at start. Pre-deploy sessions may omit this. */
+  claimMapping?: IdentityProviderClaimMapping
   /** The provider's `detailsChangedAt` at test-start. The callback only stamps
    *  `lastSuccessfulTestAt` when this still matches — so a mid-test edit to the
    *  provider can't let a stale test unlock enforcement for the new config. */
@@ -154,11 +161,10 @@ export const startSsoTestFn = createServerFn({ method: 'POST' })
     }
 
     const { config } = await import('@/lib/server/config')
-    // Use the provider's own production callback so admins register exactly
-    // one redirect URI with their IdP. The catch-all dispatches test vs prod
-    // by looking up the OAuth `state` in the KV store (miss → fall through to
-    // Better-Auth), so the same URL handles both flows.
-    const redirectUri = `${config.baseUrl.replace(/\/$/, '')}/api/auth/oauth2/callback/${data.registrationId}`
+    // Same path Better Auth sends on sign-in, so the test and production
+    // share one redirect URI. The catch-all dispatches test vs prod by
+    // looking up the OAuth `state` in the KV store (miss → fall through).
+    const redirectUri = `${config.baseUrl.replace(/\/$/, '')}${authProviderCallbackPath(data.registrationId)}`
     const testId = `ssotest_${randomBytes(15).toString('base64url')}`
     const state = randomBytes(32).toString('base64url')
     const nonce = randomBytes(32).toString('base64url')
@@ -191,12 +197,8 @@ export const startSsoTestFn = createServerFn({ method: 'POST' })
       requestedScopes,
       tokenAuth: request.tokenAuth,
       requestedPrompt: request.prompt,
-      identityMapping: {
-        sources: identitySourcesFor(provider.claimMapping),
-        idClaim: profileClaimFor(provider.claimMapping, 'id'),
-        emailClaim: profileClaimFor(provider.claimMapping, 'email'),
-        nameClaim: profileClaimFor(provider.claimMapping, 'name'),
-      },
+      identityMapping: identityMappingFor(provider.claimMapping),
+      claimMapping: claimMappingFor(provider.claimMapping),
       adminUserId: user.id,
       startedAt: Date.now(),
       detailsChangedAt: provider.detailsChangedAt,
@@ -262,8 +264,11 @@ export type SsoTestDiagnostic = {
           id: string
           email?: string
           name?: string
-          sources: Partial<Record<'id' | 'email' | 'name', string>>
+          image?: string
+          sources: Partial<Record<'id' | 'email' | 'name' | 'image', string>>
         }
+        mappingOutcome?: ProfileOutcome
+        capture?: SsoTestCaptureV2
       }
     | {
         ok: false
@@ -271,13 +276,14 @@ export type SsoTestDiagnostic = {
         errorCode?: string
         hint: string
         steps: DiagnosticStep[]
+        mappingOutcome?: ProfileOutcome
+        capture?: SsoTestCaptureV2
+        allClaims?: Record<string, JsonValue>
       }
   /**
-   * Set when result.ok and the IdP-returned `email` claim
-   * case-insensitively matches the admin who started the test.
-   * When true, `principal.last_sso_sign_in_at` has been updated
-   * for that admin and the per-domain SSO enforcement bootstrap
-   * gate is satisfied for the standard 7-day window.
+   * Informational only. True when the IdP-returned email matches the admin
+   * who started the test. It does not write `principal.last_sso_sign_in_at`
+   * and is not a bootstrap or enforcement gate.
    */
   identityMatched?: boolean
 }

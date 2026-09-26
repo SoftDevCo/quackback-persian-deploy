@@ -17,6 +17,7 @@ import {
   fetchDefaultSlaPolicyFn,
   getSpamFilterConfigFn,
 } from '@/lib/server/functions/settings'
+import { listVisibleLabsExperimentsFn } from '@/lib/server/functions/labs'
 import { getHelpCenterConfigFn } from '@/lib/server/functions/help-center-settings'
 import { getHelpCenterDomainStatusFn } from '@/lib/server/functions/help-center-domain'
 import { listRedirectRulesFn } from '@/lib/server/functions/help-center-redirect-rules'
@@ -34,8 +35,6 @@ import { listRolesFn } from '@/lib/server/functions/roles'
 import {
   fetchSettingsLogoData,
   fetchSettingsHeaderLogoData,
-  fetchSettingsPortalOgImageData,
-  fetchSettingsFaviconData,
 } from '@/lib/server/functions/settings-utils'
 
 const STALE_TIME_SHORT = 30 * 1000
@@ -89,20 +88,6 @@ export const settingsQueries = {
     queryOptions({
       queryKey: ['settings', 'headerLogo'],
       queryFn: fetchSettingsHeaderLogoData,
-      staleTime: STALE_TIME_LONG,
-    }),
-
-  portalOgImage: () =>
-    queryOptions({
-      queryKey: ['settings', 'portalOgImage'],
-      queryFn: fetchSettingsPortalOgImageData,
-      staleTime: STALE_TIME_LONG,
-    }),
-
-  favicon: () =>
-    queryOptions({
-      queryKey: ['settings', 'favicon'],
-      queryFn: fetchSettingsFaviconData,
       staleTime: STALE_TIME_LONG,
     }),
 
@@ -247,5 +232,12 @@ export const settingsQueries = {
       queryKey: ['settings', 'spamFilterConfig'],
       queryFn: getSpamFilterConfigFn,
       staleTime: STALE_TIME_MEDIUM,
+    }),
+
+  labs: () =>
+    queryOptions({
+      queryKey: ['settings', 'labs'],
+      queryFn: listVisibleLabsExperimentsFn,
+      staleTime: STALE_TIME_SHORT,
     }),
 }

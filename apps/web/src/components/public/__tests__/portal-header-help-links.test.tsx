@@ -41,11 +41,12 @@ vi.mock('@/components/auth/auth-popover-context', () => ({
 vi.mock('@/components/auth/oauth-buttons', () => ({
   hasAnyPortalAuthMethod: () => false,
   resolveSoleOidcProvider: () => null,
+  hasDistinctSignup: () => true,
 }))
 
 vi.mock('@tanstack/react-query', () => ({
   useQuery: () => ({ data: null }),
-  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+  useQueryClient: () => ({ invalidateQueries: vi.fn(), removeQueries: vi.fn() }),
 }))
 
 vi.mock('@/lib/server/functions/conversation', () => ({
@@ -58,7 +59,7 @@ vi.mock('@/lib/client/hooks/use-auth-broadcast', () => ({
 
 vi.mock('@/lib/client/auth-client', () => ({
   signOut: vi.fn(),
-  authClient: { signIn: { oauth2: vi.fn() } },
+  authClient: { signIn: { social: vi.fn() } },
 }))
 
 vi.mock('@/components/notifications', () => ({

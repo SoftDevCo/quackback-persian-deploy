@@ -52,7 +52,7 @@ const hoisted = vi.hoisted(() => {
 
 vi.mock('@/lib/server/auth', () => ({ auth: hoisted.auth }))
 
-import { consumeOriginTransfer } from '../origin-transfer'
+import { consumeOpenHandoff, consumeOriginTransfer } from '../origin-transfer'
 
 const fixture = await createDbTestFixture({
   probe: async (db) => {
@@ -152,6 +152,7 @@ describe.skipIf(!fixture.available)('rename-transfer OTT consume', () => {
     const auth = betterAuth({
       baseURL: CANONICAL,
       secret: 'test-secret-not-used-for-anything-real',
+      trustedOrigins: [CANONICAL, `https://${SYSTEM_HOST}`, `https://${FRIENDLY_HOST}`],
       database: drizzleAdapter(testDb, {
         provider: 'pg',
         schema: { user, session, account, verification },
@@ -242,5 +243,66 @@ describe.skipIf(!fixture.available)('rename-transfer OTT consume', () => {
     expect(result).toEqual({ kind: 'error', status: 'invalid' })
     expect(await ottRowCount(token)).toBe(1)
     expect(hoisted.handler).not.toHaveBeenCalled()
+  })
+
+  it('redeems a Visit handoff that arrived from the control plane', async () => {
+    const { sessionToken } = await seedSessionUser()
+    const token = await seedOtt({ sessionToken, expiresAt: future() })
+    const headers = new Headers({
+      host: SYSTEM_HOST,
+      cookie: 'cf_clearance=edge',
+      referer: 'https://app.quackback.io/',
+    })
+
+    const result = await consumeOpenHandoff({ ott: token, headers })
+
+    expect(result).toMatchObject({ kind: 'redirect', to: '/' })
+    if (result.kind !== 'redirect') return
+    expect(result.cookies.some((cookie) => cookie.toLowerCase().includes('session'))).toBe(true)
+  })
+
+  it('lets Visit replay the Open token until it expires', async () => {
+    const { sessionToken } = await seedSessionUser()
+    const token = await seedOtt({ sessionToken, expiresAt: future() })
+
+    const first = await consumeOpenHandoff({ ott: token })
+    expect(first).toMatchObject({ kind: 'redirect', to: '/' })
+    if (first.kind !== 'redirect') return
+    expect(first.cookies.some((cookie) => cookie.toLowerCase().includes('session'))).toBe(true)
+    expect(await ottRowCount(token)).toBe(1)
+
+    const replay = await consumeOpenHandoff({ ott: token })
+    expect(replay).toMatchObject({ kind: 'redirect', to: '/' })
+    if (replay.kind !== 'redirect') return
+    expect(replay.cookies.some((cookie) => cookie.toLowerCase().includes('session'))).toBe(true)
+    expect(await ottRowCount(token)).toBe(1)
+  })
+
+  it('still refuses an expired Open token', async () => {
+    const { sessionToken } = await seedSessionUser()
+    const token = await seedOtt({ sessionToken, expiresAt: past() })
+
+    const result = await consumeOpenHandoff({ ott: token })
+    expect(result).toEqual({ kind: 'error', status: 'invalid' })
+  })
+
+  it('retries Open when a parallel GET snapshots after the sibling consume', async () => {
+    const { sessionToken } = await seedSessionUser()
+    const token = await seedOtt({ sessionToken, expiresAt: future() })
+    const [row] = await testDb
+      .select()
+      .from(verification)
+      .where(eq(verification.identifier, `one-time-token:${token}`))
+      .limit(1)
+    expect(row).toBeTruthy()
+    await testDb.delete(verification).where(eq(verification.identifier, `one-time-token:${token}`))
+
+    const pending = consumeOpenHandoff({ ott: token })
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    await testDb.insert(verification).values(row!)
+
+    const result = await pending
+    expect(result).toMatchObject({ kind: 'redirect', to: '/' })
+    expect(await ottRowCount(token)).toBe(1)
   })
 })

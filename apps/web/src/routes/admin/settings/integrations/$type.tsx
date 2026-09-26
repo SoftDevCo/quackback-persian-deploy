@@ -1,17 +1,23 @@
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { createFileRoute, notFound } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { adminQueries } from '@/lib/client/queries/admin'
 import { IntegrationHeader } from '@/components/admin/settings/integrations/integration-header'
 import { IntegrationSetupCard } from '@/components/admin/settings/integrations/integration-setup-card'
 import { PlatformCredentialsDialog } from '@/components/admin/settings/integrations/platform-credentials-dialog'
-import { IntegrationHealthPanel } from '@/components/admin/settings/integrations/integration-health-panel'
+import {
+  IntegrationHealthPanel,
+  type IntegrationHealth,
+} from '@/components/admin/settings/integrations/integration-health-panel'
 import {
   getIntegrationSettingsEntry,
   type IntegrationSettingsData,
 } from '@/components/admin/settings/integrations/integration-settings-registry'
+import { IntegrationSyncHistory } from '@/components/admin/settings/integrations/integration-sync-history'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { canEditPlatformCredentials, showOAuthConnect } from '@/lib/shared/integration-connect'
 
 /** URL segments use hyphens (e.g. `azure-devops`); registry keys use the
  * underscore integration type (`azure_devops`). Every other provider is a
@@ -20,7 +26,18 @@ function toIntegrationType(param: string): string {
   return param.replace(/-/g, '_')
 }
 
+const emptyHealth: IntegrationHealth = {
+  lastOutboundAt: null,
+  lastInboundAt: null,
+  lastError: null,
+  lastErrorAt: null,
+  attentionCount: 0,
+}
+
 export const Route = createFileRoute('/admin/settings/integrations/$type')({
+  validateSearch: (search: Record<string, unknown>): { tab?: 'history' } => ({
+    tab: search.tab === 'history' ? 'history' : undefined,
+  }),
   loader: async ({ context, params }) => {
     const type = toIntegrationType(params.type)
     if (!getIntegrationSettingsEntry(type)) throw notFound()
@@ -38,17 +55,54 @@ function IntegrationSettingsPage() {
 
   const { data } = useSuspenseQuery(adminQueries.integrationByType(type))
   const integration = data.integration as IntegrationSettingsData | null
-  const { platformCredentialFields, platformCredentialsConfigured } = data
+  const {
+    platformCredentialFields,
+    platformCredentialsConfigured,
+    platformCredentialsManaged = false,
+  } = data
+  const historyAvailable = data.syncHistoryAvailable === true
   const [credentialsOpen, setCredentialsOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const { tab } = Route.useSearch()
+  const navigate = Route.useNavigate()
+
+  useEffect(() => {
+    if (tab !== 'history') return
+    if (historyAvailable) setHistoryOpen(true)
+    void navigate({
+      search: (previous) => ({ ...previous, tab: undefined }),
+      replace: true,
+    })
+  }, [tab, historyAvailable, navigate])
+
+  useEffect(() => {
+    if (!historyAvailable) setHistoryOpen(false)
+  }, [historyAvailable])
 
   const { catalog, Icon, ConnectionActions, setup } = entry
   const status = integration?.status ?? null
   const isConnected = status === 'active'
   const isPaused = status === 'paused'
   const hasCredentials = platformCredentialFields.length > 0
+  const canEditCredentials = canEditPlatformCredentials(platformCredentialsManaged)
+  const canConnect = showOAuthConnect({
+    hasPlatformCredentialFields: hasCredentials,
+    platformCredentialsConfigured,
+    platformCredentialsManaged,
+  })
   const workspaceName = integration
     ? (entry.getWorkspaceName?.(integration) ?? integration.workspaceName)
     : undefined
+  const showDisconnect = isConnected || isPaused
+  const showConnect = !integration && canConnect
+  const showCredentials = hasCredentials && canEditCredentials && (showDisconnect || !integration)
+  const credentialsPrimary = showCredentials && !showDisconnect && !showConnect
+  const health = integration?.health
+    ? {
+        ...integration.health,
+        attentionCount: historyAvailable ? (integration.health.attentionCount ?? 0) : 0,
+      }
+    : emptyHealth
 
   return (
     <div className="space-y-6">
@@ -57,33 +111,50 @@ function IntegrationSettingsPage() {
         status={status}
         workspaceName={workspaceName}
         icon={<Icon className="h-6 w-6 text-white" />}
-        actions={
-          isConnected || isPaused ? (
-            <div className="flex items-center gap-2">
-              {hasCredentials && (
-                <Button variant="outline" size="sm" onClick={() => setCredentialsOpen(true)}>
-                  Configure credentials
-                </Button>
-              )}
-              <ConnectionActions integrationId={integration?.id} isConnected={true} />
-            </div>
-          ) : undefined
+        aside={
+          <IntegrationHealthPanel
+            embedded
+            health={health}
+            onViewHistory={historyAvailable ? () => setHistoryOpen(true) : undefined}
+            actions={
+              showCredentials || showDisconnect || showConnect ? (
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                  {showCredentials && (
+                    <Button
+                      variant={credentialsPrimary ? 'default' : 'outline'}
+                      size={credentialsPrimary ? 'default' : 'sm'}
+                      onClick={() => setCredentialsOpen(true)}
+                    >
+                      Configure credentials
+                    </Button>
+                  )}
+                  {(showDisconnect || showConnect) && (
+                    <Suspense fallback={null}>
+                      <ConnectionActions
+                        integrationId={integration?.id}
+                        isConnected={showDisconnect}
+                      />
+                    </Suspense>
+                  )}
+                </div>
+              ) : undefined
+            }
+          />
         }
       />
 
-      {integration && (isConnected || isPaused) && (
-        <>
-          <IntegrationHealthPanel health={integration.health} />
-          {entry.renderConfig ? (
-            <div className="rounded-xl border border-border/50 bg-card p-6 shadow-sm">
-              <Suspense fallback={<Skeleton className="h-40 w-full" />}>
-                {entry.renderConfig({ integration, isConnected })}
-              </Suspense>
-            </div>
-          ) : (
-            entry.connectedBanner
-          )}
-        </>
+      {integration && (isConnected || isPaused) && entry.renderConfig && (
+        <div
+          className={
+            entry.bareConfig
+              ? undefined
+              : 'rounded-xl border border-border/50 bg-card p-6 shadow-sm'
+          }
+        >
+          <Suspense fallback={<Skeleton className="h-40 w-full" />}>
+            {entry.renderConfig({ integration, isConnected })}
+          </Suspense>
+        </div>
       )}
 
       {!integration && (
@@ -92,29 +163,19 @@ function IntegrationSettingsPage() {
           title={setup.title}
           description={setup.description}
           steps={setup.steps}
-          connectionForm={
-            <div className="flex flex-col items-end gap-2">
-              {hasCredentials && !platformCredentialsConfigured && (
-                <Button onClick={() => setCredentialsOpen(true)}>Configure credentials</Button>
-              )}
-              {(!hasCredentials || platformCredentialsConfigured) && (
-                <div className="flex items-center gap-2">
-                  {hasCredentials && (
-                    <Button variant="outline" size="sm" onClick={() => setCredentialsOpen(true)}>
-                      Configure credentials
-                    </Button>
-                  )}
-                  <Suspense fallback={null}>
-                    <ConnectionActions integrationId={undefined} isConnected={false} />
-                  </Suspense>
-                </div>
-              )}
-            </div>
-          }
         />
       )}
 
-      {hasCredentials && (
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="max-h-[min(80vh,720px)] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Sync history</DialogTitle>
+          </DialogHeader>
+          {historyOpen && <IntegrationSyncHistory key={type} provider={type} />}
+        </DialogContent>
+      </Dialog>
+
+      {hasCredentials && canEditCredentials && (
         <PlatformCredentialsDialog
           integrationType={type}
           integrationName={catalog.name}

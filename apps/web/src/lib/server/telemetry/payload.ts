@@ -34,7 +34,7 @@ export interface TelemetryPayload {
   }
   /** Full flag map. Kept so existing raw_payload queries still work. */
   experimentalFeatures: Record<string, boolean>
-  /** First-class product modules. Stable names, not mixed with Labs. */
+  /** First-class product modules. */
   products: TelemetryProducts
   cloud: boolean
   firstWin: { reached: boolean; outcome: TelemetryOutcome | null }
@@ -238,6 +238,7 @@ async function getSeats7d(): Promise<ScaleBracket> {
           INNER JOIN "principal" p ON p.user_id = s.user_id
           WHERE s.updated_at > now() - interval '7 days'
             AND p.role IN ('admin', 'member')
+            AND p.type = 'user'
             AND p.user_id IS NOT NULL`
     )
     const row = getExecuteRows<{ seats: number }>(result)[0]

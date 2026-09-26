@@ -19,13 +19,14 @@ export function SettingsCard({
 }: SettingsCardProps): React.ReactElement {
   return (
     <section
+      data-settings-card=""
       className={cn(
         'rounded-xl border bg-card shadow-sm overflow-hidden',
         variant === 'danger' ? 'border-destructive/20' : 'border-border/50'
       )}
     >
       {(title || description || action) && (
-        <div className="px-4 py-3 sm:px-6 sm:py-4 border-b border-border/50 flex items-center justify-between">
+        <div className="flex flex-wrap items-start justify-between gap-2 px-4 py-3 sm:px-6 sm:py-4 border-b border-border/50">
           <div>
             {title && (
               <h2

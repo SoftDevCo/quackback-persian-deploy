@@ -8,7 +8,7 @@ import {
   type OnboardingOutcome,
   type SetupState,
 } from '@/lib/server/db'
-import { isAdmin } from '@/lib/shared/roles'
+import { isAdmin, toSessionScope } from '@/lib/shared/roles'
 import { getSession } from '@/lib/server/auth/session'
 import { getSettings } from './workspace'
 import { syncPrincipalProfile } from '@/lib/server/domains/principals/principal.service'
@@ -24,17 +24,25 @@ import {
 import { db, settings, principal, user, postStatuses, eq, DEFAULT_STATUSES } from '@/lib/server/db'
 import { isOnboardingComplete } from '@/lib/shared/db-types'
 import { invalidateSettingsCache } from '@/lib/server/domains/settings/settings.helpers'
-import { DEFAULT_AUTH_CONFIG, DEFAULT_PORTAL_CONFIG } from '@/lib/server/domains/settings'
+import { ensureNewWorkspaceLabs } from '@/lib/server/domains/settings/settings.labs'
+import { DEFAULT_ASSISTANT_CONFIG } from '@/lib/shared/assistant/config'
 import {
-  enableFlagsForUseCase,
-  featureFlagsForUseCase,
+  DEFAULT_AUTH_CONFIG,
+  DEFAULT_FEATURE_FLAGS,
+  DEFAULT_PORTAL_CONFIG,
+  DEFAULT_WIDGET_CONFIG,
+  flagsForGoal,
   resolveFeatureFlags,
 } from '@/lib/server/domains/settings/settings.types'
 import { isPathManaged } from '@/lib/server/config-file/managed-paths'
 import { slugify } from '@/lib/shared/utils'
 import { getSetupState } from '@/lib/shared/db-types'
 import { logger } from '@/lib/server/logger'
-import { applyDeferredLaunchStartingPoint, mutateSetupStateAtomic } from '@/lib/server/setup-state'
+import {
+  applyDeferredLaunchStartingPoint,
+  finishIdentityOnboarding,
+  mutateSetupStateAtomic,
+} from '@/lib/server/setup-state'
 import { parseIdentityProjection } from '@/lib/server/domains/settings/cloud/identity-projection'
 
 const log = logger.child({ component: 'onboarding' })
@@ -169,7 +177,7 @@ const saveWorkspaceAndGoalSchema = z.object({
     .min(2, 'Name must be at least 2 characters')
     .max(100, 'Name must be 100 characters or less')
     .optional(),
-  useCase: z.enum(ONBOARDING_OUTCOMES),
+  useCase: z.enum(ONBOARDING_OUTCOMES).optional(),
 })
 
 // ============================================
@@ -184,6 +192,7 @@ export interface SaveWorkspaceAndGoalResult {
   slug: string
   useCase: OnboardingOutcome
   managed: { name: boolean; slug: boolean; useCase: boolean }
+  enabledModules: string[]
 }
 
 // ============================================
@@ -203,15 +212,17 @@ export const saveWorkspaceAndGoalFn = createServerFn({ method: 'POST' })
   .handler(
     async ({ data }: { data: SaveWorkspaceAndGoalInput }): Promise<SaveWorkspaceAndGoalResult> => {
       log.debug(
-        { workspace_name: data.workspaceName, use_case: data.useCase },
+        { workspace_name: data.workspaceName, use_case: data.useCase ?? 'product_feedback' },
         'save workspace and goal'
       )
       const session = await getSession()
       if (!session?.user) throw new Error('Authentication required')
+      if (session.session.scope !== 'dashboard') throw new Error('Only admin can change setup')
 
       const workspaceName = data.workspaceName.trim()
       const slug = slugify(workspaceName)
       if (slug.length < 2) throw new Error('Invalid workspace name - cannot generate valid slug')
+      const useCase = data.useCase ?? 'product_feedback'
       const existingSettings = await getSettings()
 
       // Who owns setup decides this, not what the setup state says. An earlier
@@ -246,32 +257,39 @@ export const saveWorkspaceAndGoalFn = createServerFn({ method: 'POST' })
 
       let result: SaveWorkspaceAndGoalResult
       if (!existingSettings) {
-        const initialState: SetupState = {
-          ...applyDeferredLaunchStartingPoint(
-            { ...DEFAULT_SETUP_STATE, steps: { ...DEFAULT_SETUP_STATE.steps, workspace: true } },
-            data.useCase
-          ),
-        }
-        const [created] = await db
-          .insert(settings)
-          .values({
-            id: generateId('workspace'),
-            name: workspaceName,
-            slug,
-            createdAt: new Date(),
-            portalConfig: JSON.stringify(DEFAULT_PORTAL_CONFIG),
-            authConfig: JSON.stringify({ ...DEFAULT_AUTH_CONFIG, openSignup: true }),
-            setupState: JSON.stringify(initialState),
-            featureFlags: JSON.stringify(featureFlagsForUseCase(data.useCase)),
-          })
-          .returning()
+        const initialState: SetupState = finishIdentityOnboarding(
+          { ...DEFAULT_SETUP_STATE, steps: { ...DEFAULT_SETUP_STATE.steps, workspace: true } },
+          useCase
+        )
+        const { flags, enabledModules } = flagsForGoal(DEFAULT_FEATURE_FLAGS, useCase)
+        const created = await db.transaction(async (tx) => {
+          const [row] = await tx
+            .insert(settings)
+            .values({
+              id: generateId('workspace'),
+              name: workspaceName,
+              slug,
+              createdAt: new Date(),
+              portalConfig: JSON.stringify(DEFAULT_PORTAL_CONFIG),
+              widgetConfig: JSON.stringify(DEFAULT_WIDGET_CONFIG),
+              assistantConfig: DEFAULT_ASSISTANT_CONFIG,
+              authConfig: JSON.stringify({ ...DEFAULT_AUTH_CONFIG, openSignup: true }),
+              setupState: JSON.stringify(initialState),
+              featureFlags: JSON.stringify(flags),
+            })
+            .returning()
+          if (!row) throw new Error('Failed to create workspace settings')
+          await ensureNewWorkspaceLabs(row.id, tx)
+          return row
+        })
         await invalidateSettingsCache()
         result = {
           id: created.id,
           name: created.name,
           slug: created.slug,
-          useCase: data.useCase,
+          useCase,
           managed: { name: false, slug: false, useCase: false },
+          enabledModules,
         }
       } else {
         const { value } = await mutateSetupStateAtomic(async (current, row, tx) => {
@@ -281,19 +299,19 @@ export const saveWorkspaceAndGoalFn = createServerFn({ method: 'POST' })
           if (nameManaged && workspaceName !== row.name) {
             throw new Error('Workspace name is managed by your workspace admin')
           }
-          if (useCaseManaged && data.useCase !== current.useCase) {
+          if (useCaseManaged && data.useCase && data.useCase !== current.useCase) {
             throw new Error('Workspace goal is managed by your workspace admin')
           }
+          const goal = useCaseManaged ? (current.useCase ?? useCase) : useCase
+          const { flags, enabledModules } = flagsForGoal(
+            resolveFeatureFlags(row.featureFlags),
+            goal
+          )
           const updatePayload: Record<string, unknown> = {
             portalConfig: row.portalConfig ?? JSON.stringify(DEFAULT_PORTAL_CONFIG),
             authConfig:
               row.authConfig ?? JSON.stringify({ ...DEFAULT_AUTH_CONFIG, openSignup: true }),
-            featureFlags: JSON.stringify(
-              enableFlagsForUseCase(
-                resolveFeatureFlags(row.featureFlags),
-                useCaseManaged ? (current.useCase ?? data.useCase) : data.useCase
-              )
-            ),
+            featureFlags: JSON.stringify(flags),
           }
           if (!nameManaged) updatePayload.name = workspaceName
           if (!slugManaged) updatePayload.slug = slug
@@ -302,13 +320,13 @@ export const saveWorkspaceAndGoalFn = createServerFn({ method: 'POST' })
             .set(updatePayload)
             .where(eq(settings.id, row.id))
             .returning()
-          const goal = useCaseManaged ? (current.useCase ?? data.useCase) : data.useCase
           return {
-            state: applyDeferredLaunchStartingPoint(current, goal),
+            state: finishIdentityOnboarding(current, goal),
             value: {
               updated,
               goal,
               managed: { name: nameManaged, slug: slugManaged, useCase: useCaseManaged },
+              enabledModules,
             },
           }
         })
@@ -318,6 +336,7 @@ export const saveWorkspaceAndGoalFn = createServerFn({ method: 'POST' })
           slug: value.updated.slug,
           useCase: value.goal,
           managed: value.managed,
+          enabledModules: value.enabledModules,
         }
       }
 
@@ -345,21 +364,30 @@ export const saveCloudOnboardingGoalFn = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     const session = await getSession()
     if (!session?.user) throw new Error('Authentication required')
+    if (session.session.scope !== 'dashboard') throw new Error('Only admin can change setup')
     const caller = await db.query.principal.findFirst({
       where: eq(principal.userId, session.user.id as UserId),
     })
     if (!caller || !isAdmin(caller.role)) throw new Error('Only admin can change setup')
 
-    const { state } = await mutateSetupStateAtomic((current, row) => {
+    const { state, value } = await mutateSetupStateAtomic(async (current, row, tx) => {
       if (!parseIdentityProjection(row.cloudIdentity)) {
         throw new Error('Cloud workspace identity is not enabled')
       }
       if (!current.workspaceDetailsSeenAt) {
         throw new Error('Set your workspace name and URL first')
       }
+      const { flags, enabledModules } = flagsForGoal(
+        resolveFeatureFlags(row.featureFlags),
+        data.useCase
+      )
+      await tx
+        .update(settings)
+        .set({ featureFlags: JSON.stringify(flags) })
+        .where(eq(settings.id, row.id))
       return {
         state: applyDeferredLaunchStartingPoint(current, data.useCase),
-        value: undefined,
+        value: { enabledModules },
       }
     })
 
@@ -373,8 +401,48 @@ export const saveCloudOnboardingGoalFn = createServerFn({ method: 'POST' })
         }))
       )
     }
-    return { useCase: state.useCase! }
+    return { useCase: state.useCase!, enabledModules: value.enabledModules }
   })
+
+/** Stamp default outcome, friendly-host details, and handoff so Home can open. */
+export const ensureOnboardingHomeReadyFn = createServerFn({ method: 'POST' }).handler(async () => {
+  const session = await getSession()
+  if (!session?.user) return { ok: false as const }
+  if (session.session.scope !== 'dashboard') return { ok: false as const }
+  const existingSettings = await getSettings()
+  if (!existingSettings) return { ok: false as const }
+  const caller = await db.query.principal.findFirst({
+    where: eq(principal.userId, session.user.id as UserId),
+  })
+  if (!caller || !isAdmin(caller.role)) return { ok: false as const }
+
+  const identity = parseIdentityProjection(existingSettings.cloudIdentity)
+  const { friendlyPlatformLabel } = await import('@/lib/shared/platform-label')
+  const hasFriendlyHost = Boolean(friendlyPlatformLabel(identity?.platformHostname))
+
+  await mutateSetupStateAtomic(async (current, row, tx) => {
+    const now = new Date().toISOString()
+    const goal =
+      current.useCase && current.useCase !== 'internal' ? current.useCase : 'product_feedback'
+    let next = current
+    if (hasFriendlyHost && !current.workspaceDetailsSeenAt) {
+      next = { ...next, workspaceDetailsSeenAt: now }
+    }
+    if (!next.steps.startingPoint || next.steps.startingPoint.source === 'managed') {
+      const { flags } = flagsForGoal(resolveFeatureFlags(row.featureFlags), goal)
+      await tx
+        .update(settings)
+        .set({ featureFlags: JSON.stringify(flags) })
+        .where(eq(settings.id, row.id))
+      next = applyDeferredLaunchStartingPoint(next, goal, now)
+    }
+    if (!next.activationHandoffSeenAt) {
+      next = { ...next, activationHandoffSeenAt: now }
+    }
+    return { state: next, value: undefined }
+  })
+  return { ok: true as const }
+})
 
 /**
  * Save user name during onboarding.
@@ -391,6 +459,9 @@ export const saveUserNameFn = createServerFn({ method: 'POST' })
     const session = await getSession()
     if (!session?.user) {
       throw new Error('Authentication required')
+    }
+    if (toSessionScope(session.session?.scope) !== 'dashboard') {
+      throw new Error('Only admin can change setup')
     }
 
     await db

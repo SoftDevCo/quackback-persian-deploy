@@ -1,9 +1,5 @@
 import type { OnboardingOutcome, StartingPointState } from '@/lib/shared/db-types'
-import {
-  buildLaunchTasks,
-  normalizeOutcome,
-  type LaunchStatus,
-} from '@/lib/shared/launch-checklist'
+import { normalizeOutcome, type LaunchStatus } from '@/lib/shared/launch-checklist'
 
 export type ActivationSurface =
   'onboarding_handoff' | 'feedback_empty' | 'conversation_empty' | 'launch_plan'
@@ -37,7 +33,7 @@ export interface ActivationActionContext {
   startingPoint?: StartingPointState | null
 }
 
-function copyBoardAction(
+export function copyBoardLinkAction(
   outcome: OnboardingOutcome,
   status: LaunchStatus
 ): ActivationAction | null {
@@ -81,7 +77,7 @@ export function selectActivationAction({
     }
     if (!status.publicBoardLinkCopiedAt && !status.hasWidgetInstalled && !status.hasFirstWin) {
       if (status.permissions?.boardManage === false) return null
-      return copyBoardAction(outcome, status)
+      return copyBoardLinkAction(outcome, status)
     }
     return null
   }
@@ -116,14 +112,14 @@ export function selectActivationAction({
       return {
         id: 'open-launch-plan',
         outcome,
-        label: 'View your launch plan',
+        label: 'Open Home',
         kind: 'link',
-        destination: '/admin/getting-started',
+        destination: '/admin',
       }
     }
     if (outcome === 'product_feedback') {
       return (
-        copyBoardAction(outcome, status) ?? {
+        copyBoardLinkAction(outcome, status) ?? {
           id: 'open-feedback-board',
           outcome,
           label: 'Open your board',
@@ -147,7 +143,7 @@ export function selectActivationAction({
         outcome,
         label: 'Continue the article',
         kind: 'link',
-        destination: `/admin/help-center/articles/${startingPoint.resourceId}`,
+        destination: `/admin/help-center?article=${startingPoint.resourceId}`,
       }
     }
     if (outcome === 'internal') {
@@ -162,29 +158,13 @@ export function selectActivationAction({
     return {
       id: 'open-launch-plan',
       outcome,
-      label: 'View your launch plan',
+      label: 'Open Home',
       kind: 'link',
-      destination: '/admin/getting-started',
+      destination: '/admin',
     }
   }
 
-  const nextTask = buildLaunchTasks(status, outcome).find(
-    (task) =>
-      task.classification === 'prerequisite' &&
-      !task.isCompleted &&
-      !task.isDeferred &&
-      task.availability === 'available'
-  )
-  if (!nextTask) return null
-  if (nextTask.id === 'distribute-feedback') return copyBoardAction(outcome, status)
-  if (!nextTask.href) return null
-  return {
-    id: nextTask.id,
-    outcome,
-    label: nextTask.actionLabel ?? nextTask.title,
-    kind: 'link',
-    destination: nextTask.href,
-  }
+  return null
 }
 
 /**
@@ -216,7 +196,7 @@ export function resolveOnboardingHandoffCtas(input: Omit<ActivationActionContext
       outcome,
       label: 'Go to your workspace',
       kind: 'link',
-      destination: '/admin/getting-started',
+      destination: '/admin',
     },
     share: null,
   }

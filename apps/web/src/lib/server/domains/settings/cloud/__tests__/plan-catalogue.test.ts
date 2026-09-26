@@ -24,7 +24,10 @@ import {
   ENTITLEMENT_KEYS,
   PLAN_CATALOGUE,
   PLAN_DEFINITIONS,
+  PLAN_ID_ALIASES,
   PLAN_IDS,
+  canonicalPlanId,
+  isPlanId,
   minimumPlanFor,
   type CloudConfig,
   type EntitlementKey,
@@ -47,40 +50,66 @@ function on(plan: PlanId): CloudConfig {
  * The cheapest plan each entitlement is included on. Hand-transcribed from the
  * price list; not derived from the catalogue under test.
  */
-const INCLUDED_FROM: Record<EntitlementKey, PlanId> = {
-  customDomain: 'growth',
-  aiAssistant: 'growth',
-  aiDrafts: 'growth',
-  apiAccess: 'growth',
-  mcpServer: 'growth',
-  webhooks: 'growth',
+const INCLUDED_FROM: Partial<Record<EntitlementKey, PlanId>> = {
+  customDomain: 'pro',
+  aiAssistant: 'pro',
+  aiDrafts: 'pro',
+  apiAccess: 'pro',
+  mcpServer: 'pro',
+  webhooks: 'pro',
   aiInsights: 'pro',
-  workflows: 'pro',
-  auditLog: 'scale',
-  sso: 'scale',
+  workflows: 'business',
+  auditLog: 'enterprise',
+  sso: 'enterprise',
 }
+
+const ADD_ON_KEYS: EntitlementKey[] = ['hideBranding']
 
 describe('the plan ladder', () => {
   it('is the four plans the product sells, cheapest first', () => {
-    expect(PLAN_IDS).toEqual(['free', 'growth', 'pro', 'scale'])
+    expect(PLAN_IDS).toEqual(['free', 'pro', 'business', 'enterprise'])
   })
 
   it('ranks each id at its position in the ladder', () => {
-    // Pinned as pairs rather than as a set. `pro` sitting at rank 2 is the
+    // Pinned as pairs rather than as a set. `business` sitting at rank 2 is the
     // whole point: a stored plan is a bare string, so an id that keeps its
     // name but changes rank hands a workspace a tier it never bought.
     expect(PLAN_DEFINITIONS.map((plan) => [plan.id, plan.rank])).toEqual([
       ['free', 0],
-      ['growth', 1],
-      ['pro', 2],
-      ['scale', 3],
+      ['pro', 1],
+      ['business', 2],
+      ['enterprise', 3],
     ])
   })
 
   it('reads correctly in refusal copy, article and all', () => {
     expect(
       PLAN_IDS.map((id) => `${PLAN_CATALOGUE[id].article} ${PLAN_CATALOGUE[id].name} plan`)
-    ).toEqual(['a Free plan', 'a Growth plan', 'a Pro plan', 'a Scale plan'])
+    ).toEqual(['a Free plan', 'a Pro plan', 'a Business plan', 'an Enterprise plan'])
+  })
+
+  it('maps leftover growth/scale onto pro/enterprise; pro is the entry tier', () => {
+    expect(PLAN_ID_ALIASES).toEqual({ growth: 'pro', scale: 'enterprise' })
+    expect(canonicalPlanId('pro')).toBe('pro')
+    expect(canonicalPlanId('growth')).toBe('pro')
+    expect(canonicalPlanId('scale')).toBe('enterprise')
+    expect(canonicalPlanId('business')).toBe('business')
+    expect(canonicalPlanId('enterprise')).toBe('enterprise')
+    expect(isPlanId('pro')).toBe(true)
+    expect(isPlanId('growth')).toBe(false)
+    expect(isPlanId('scale')).toBe(false)
+    expect(isPlanId('business')).toBe(true)
+    expect(isPlanId('enterprise')).toBe(true)
+    expect(PLAN_CATALOGUE[canonicalPlanId('growth')]).toEqual(PLAN_CATALOGUE.pro)
+    expect(PLAN_CATALOGUE[canonicalPlanId('scale')]).toEqual(PLAN_CATALOGUE.enterprise)
+    expect(PLAN_CATALOGUE[canonicalPlanId('pro')].name).toBe('Pro')
+    expect(PLAN_CATALOGUE.business.name).toBe('Business')
+    expect(PLAN_CATALOGUE[canonicalPlanId('scale')]).toMatchObject({
+      name: 'Enterprise',
+      article: 'an',
+      rank: PLAN_CATALOGUE.enterprise.rank,
+      grants: PLAN_CATALOGUE.enterprise.grants,
+    })
   })
 })
 
@@ -88,7 +117,9 @@ describe('what each plan includes', () => {
   it('states a level for every entitlement in the catalogue', () => {
     // Keeps this file exhaustive: a key added without a considered level
     // fails here rather than shipping at whatever level it landed on.
-    expect(Object.keys(INCLUDED_FROM).sort()).toEqual([...ENTITLEMENT_KEYS].sort())
+    expect(Object.keys(INCLUDED_FROM).sort()).toEqual(
+      ENTITLEMENT_KEYS.filter((key) => !ADD_ON_KEYS.includes(key)).sort()
+    )
   })
 
   it.each(Object.entries(INCLUDED_FROM) as Array<[EntitlementKey, PlanId]>)(
@@ -129,33 +160,37 @@ describe('the levels the price list moved', () => {
   // One test per correction. Each states the level it moved FROM as well as
   // the one it moved to, so a catalogue that simply granted more would fail.
 
-  it('includes the MCP server from Growth, the cheapest paid plan', () => {
+  it('includes the MCP server from Pro, the cheapest paid plan', () => {
     expect(isEntitled(on('free'), 'mcpServer')).toBe(false)
-    expect(isEntitled(on('growth'), 'mcpServer')).toBe(true)
+    expect(isEntitled(on('pro'), 'mcpServer')).toBe(true)
   })
 
-  it('starts AI insights at Pro, not at Growth', () => {
-    expect(isEntitled(on('growth'), 'aiInsights')).toBe(false)
+  it('includes AI insights from Pro, the cheapest paid plan', () => {
+    expect(isEntitled(on('free'), 'aiInsights')).toBe(false)
     expect(isEntitled(on('pro'), 'aiInsights')).toBe(true)
   })
 
-  it('starts workflows at Pro, not at Growth', () => {
-    expect(isEntitled(on('growth'), 'workflows')).toBe(false)
-    expect(isEntitled(on('pro'), 'workflows')).toBe(true)
+  it('starts workflows at Business, not at Pro', () => {
+    expect(isEntitled(on('pro'), 'workflows')).toBe(false)
+    expect(isEntitled(on('business'), 'workflows')).toBe(true)
   })
 
-  it('starts the audit log at Scale, not at Pro', () => {
-    expect(isEntitled(on('pro'), 'auditLog')).toBe(false)
-    expect(isEntitled(on('scale'), 'auditLog')).toBe(true)
+  it('starts the audit log at Enterprise, not at Business', () => {
+    expect(isEntitled(on('business'), 'auditLog')).toBe(false)
+    expect(isEntitled(on('enterprise'), 'auditLog')).toBe(true)
   })
 
-  it('separates AI drafts from AI insights, one tier apart', () => {
-    // The split these two keys exist for: drafting and macros in the inbox
-    // come with Growth, while post summaries and sentiment start at Pro. A
-    // single key could only have held one of those levels.
-    expect(isEntitled(on('growth'), 'aiDrafts')).toBe(true)
-    expect(isEntitled(on('growth'), 'aiInsights')).toBe(false)
+  it('includes drafting and insights together on every paid plan', () => {
     expect(isEntitled(on('pro'), 'aiDrafts')).toBe(true)
     expect(isEntitled(on('pro'), 'aiInsights')).toBe(true)
+    expect(isEntitled(on('business'), 'aiDrafts')).toBe(true)
+    expect(isEntitled(on('business'), 'aiInsights')).toBe(true)
+  })
+
+  it('never grants hideBranding from a plan; it is a purchased overlay', () => {
+    for (const plan of PLAN_DEFINITIONS) {
+      expect(isEntitled(on(plan.id), 'hideBranding')).toBe(false)
+    }
+    expect(minimumPlanFor('hideBranding')).toBeNull()
   })
 })

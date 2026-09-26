@@ -27,7 +27,7 @@ import { readActivitySnapshot } from '@/lib/server/domains/assistant/assistant-a
 import { canViewConversation } from '@/lib/server/policy/conversation'
 import { assertTicketVisible } from '@/lib/server/domains/tickets/ticket.service'
 import { NotFoundError } from '@/lib/shared/errors'
-import { isTeamMember } from '@/lib/shared/roles'
+import { isTeamMember, toSessionScope, type SessionScope } from '@/lib/shared/roles'
 import {
   loadAuthors,
   toMessageDTO,
@@ -40,6 +40,7 @@ import { createSseStream, SSE_RESPONSE_HEADERS } from '@/lib/server/utils/sse'
 import { streamLimiter } from '@/lib/server/realtime/stream-connection-limit'
 import { startStreamHeartbeat } from '@/lib/server/realtime/stream-heartbeat'
 import { getClientIp } from '@/lib/server/domains/api/rate-limit'
+import { getWorkspaceScope, runWithWorkspaceScope } from '@/lib/server/workspaces/workspace-context'
 import { logger } from '@/lib/server/logger'
 
 const log = logger.child({ component: 'chat-stream' })
@@ -51,16 +52,27 @@ interface StreamPrincipal {
   /** How the principal was authenticated: a minted token (portal access already
    *  enforced at mint) vs a raw session cookie (must be re-gated here). */
   via: 'token' | 'session'
+  /** Bound audience; non-dashboard tokens and sessions are portal-tier here. */
+  scope: SessionScope
 }
 
 /** Resolve the principal for a stream from a signed token (widget) or the
  * session cookie / Bearer header (admin + identified portal). */
 async function resolveStreamPrincipal(request: Request): Promise<StreamPrincipal | null> {
   const url = new URL(request.url)
-  const tokenPrincipalId = verifyStreamToken(url.searchParams.get('token'))
-  if (tokenPrincipalId) {
-    const row = await db.query.principal.findFirst({ where: eq(principal.id, tokenPrincipalId) })
-    if (row) return { principalId: row.id, role: row.role, type: row.type, via: 'token' }
+  const tokenPrincipal = verifyStreamToken(url.searchParams.get('token'))
+  if (tokenPrincipal) {
+    const row = await db.query.principal.findFirst({
+      where: eq(principal.id, tokenPrincipal.principalId),
+    })
+    if (row)
+      return {
+        principalId: row.id,
+        role: row.role,
+        type: row.type,
+        via: 'token',
+        scope: tokenPrincipal.scope,
+      }
     return null
   }
 
@@ -70,7 +82,13 @@ async function resolveStreamPrincipal(request: Request): Promise<StreamPrincipal
     where: eq(principal.userId, session.user.id as never),
   })
   if (!row) return null
-  return { principalId: row.id, role: row.role, type: row.type, via: 'session' }
+  return {
+    principalId: row.id,
+    role: row.role,
+    type: row.type,
+    via: 'session',
+    scope: toSessionScope(session.session.scope),
+  }
 }
 
 /** Frame a raw pub/sub payload as a named SSE event (id carried for message
@@ -103,6 +121,8 @@ export const Route = createFileRoute('/api/chat/stream')({
         if (!me) {
           return new Response('Unauthorized', { status: 401 })
         }
+        // A non-dashboard audience is portal-tier regardless of principal role.
+        const effectiveRole = me.scope !== 'dashboard' ? 'user' : me.role
 
         // Feature-flag gate: stop streams when the relevant surface is off (a
         // token may have been minted before the flag flipped). Portal access
@@ -123,7 +143,7 @@ export const Route = createFileRoute('/api/chat/stream')({
 
         const actor: Actor = {
           principalId: me.principalId,
-          role: (me.role as Actor['role']) ?? null,
+          role: (effectiveRole as Actor['role']) ?? null,
           principalType: normalizePrincipalType(me.type),
           segmentIds: new Set(),
         }
@@ -133,14 +153,14 @@ export const Route = createFileRoute('/api/chat/stream')({
         let backfillConversationId: ConversationId | null = null
 
         if (scope === 'inbox') {
-          if (!isTeamMember(me.role)) {
+          if (!isTeamMember(effectiveRole)) {
             return new Response('Forbidden', { status: 403 })
           }
           channels.push(CONVERSATION_INBOX_CHANNEL)
         } else if (scope === 'presence') {
           // App-wide agent presence: any admin page keeps a team member marked
           // online for routing. Heartbeat only — no channel subscription.
-          if (!isTeamMember(me.role)) {
+          if (!isTeamMember(effectiveRole)) {
             return new Response('Forbidden', { status: 403 })
           }
         } else if (conversationIdParam) {
@@ -148,7 +168,7 @@ export const Route = createFileRoute('/api/chat/stream')({
           // A cookie-authed (non-token) visitor bypassed the mint-time portal
           // gate, so re-check portal access here. Token streams were already
           // gated at mint; team members reach chat from the admin inbox.
-          if (me.via === 'session' && !isTeamMember(me.role)) {
+          if (me.via === 'session' && !isTeamMember(effectiveRole)) {
             const { resolvePortalAccessForRequest } =
               await import('@/lib/server/functions/portal-access')
             const access = await resolvePortalAccessForRequest()
@@ -169,7 +189,7 @@ export const Route = createFileRoute('/api/chat/stream')({
           // Team-member-only in this phase (unified inbox §3.2, M3) — there is
           // no requester-facing ticket stream yet, so unlike conversationId
           // above there's no visitor/portal branch to re-gate.
-          if (!isTeamMember(me.role)) {
+          if (!isTeamMember(effectiveRole)) {
             return new Response('Forbidden', { status: 403 })
           }
           const ticketId = ticketIdParam as TicketId
@@ -224,7 +244,13 @@ export const Route = createFileRoute('/api/chat/stream')({
         let heartbeat: { stop: () => void } | null = null
         let unsubscribe: (() => Promise<void>) | null = null
 
-        cleanup = async () => {
+        // The abort listener and the stream's cancel hook are invoked by the
+        // runtime, outside the request's AsyncLocalStorage context, so under
+        // pooled tenancy `clearPresence` (and the requeue behind it) would run
+        // with no workspace scope and throw. Capture the scope now and re-enter
+        // it for teardown — the same pattern the auth stash sweeps use.
+        const workspaceScope = getWorkspaceScope()
+        const teardown = async () => {
           if (cleanedUp) return
           cleanedUp = true
           heartbeat?.stop()
@@ -251,6 +277,8 @@ export const Route = createFileRoute('/api/chat/stream')({
           }
           slot.release()
         }
+        cleanup = () =>
+          workspaceScope ? runWithWorkspaceScope(workspaceScope, teardown) : teardown()
 
         const run = async () => {
           try {
@@ -330,7 +358,7 @@ export const Route = createFileRoute('/api/chat/stream')({
                         // Visitor (non-team) reconnect backfill must exclude
                         // them — publish-time channel separation doesn't cover
                         // this DB read path.
-                        isTeamMember(me.role)
+                        isTeamMember(effectiveRole)
                           ? undefined
                           : eq(conversationMessages.isInternal, false),
                         or(
@@ -343,7 +371,12 @@ export const Route = createFileRoute('/api/chat/stream')({
                       )
                     )
                     .orderBy(conversationMessages.createdAt, conversationMessages.id)
-                  const authors = await loadAuthors(missed.map((m) => m.principalId))
+                  const authors = await loadAuthors(
+                    missed.map((m) => m.principalId),
+                    {
+                      preferAccountName: isTeamMember(effectiveRole),
+                    }
+                  )
                   for (const m of missed) {
                     const dto = toMessageDTO(
                       m,

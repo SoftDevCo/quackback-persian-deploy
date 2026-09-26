@@ -31,6 +31,7 @@ import {
 } from '@/lib/server/domains/principals/bootstrap-admin'
 import { isAdmin } from '@/lib/shared/roles'
 import { PERMISSIONS } from '@/lib/shared/permissions'
+import { CURRENT_WIDGET_SDK_VERSION, widgetSdkNeedsUpdate } from '@/lib/shared/widget/sdk-version'
 import { listInboxPosts } from '@/lib/server/domains/posts/post.inbox'
 import { listPostTags } from '@/lib/server/domains/post-tags/post-tag.service'
 import { listStatuses } from '@/lib/server/domains/statuses/status.service'
@@ -59,13 +60,6 @@ import {
   removeSegmentEvaluationSchedule,
 } from '@/lib/server/events/segment-scheduler'
 import type { CreateSegmentInput, UpdateSegmentInput } from '@/lib/server/domains/segments'
-import {
-  listUserAttributes,
-  createUserAttribute,
-  updateUserAttribute,
-  deleteUserAttribute,
-} from '@/lib/server/domains/user-attributes/user-attribute.service'
-import type { UserAttributeId } from '@quackback/ids'
 import { sendInvitationEmail } from '@quackback/email'
 import { getBaseUrl } from '@/lib/server/config'
 import {
@@ -349,7 +343,7 @@ export const fetchOnboardingStatus = createServerFn({ method: 'GET' }).handler(a
   const auth = await requireAuth({ permission: PERMISSIONS.MEMBER_VIEW })
 
   const { getWidgetConfig } = await import('@/lib/server/domains/settings/settings.widget')
-  const { boards, helpCenterArticles, statusComponents, isNull, isNotNull, lte } =
+  const { boards, changelogEntries, helpCenterArticles, isNotNull, isNull, statusComponents } =
     await import('@/lib/server/db')
   const { getSetupState } = await import('@/lib/shared/db-types')
   const { permissionsForLegacyRole } = await import('@/lib/server/policy/permissions')
@@ -363,7 +357,7 @@ export const fetchOnboardingStatus = createServerFn({ method: 'GET' }).handler(a
     widgetConfig,
     connectedIntegration,
     helpArticle,
-    publishedHelpArticle,
+    publishedChangelog,
     statusComponent,
     tierLimits,
   ] = await Promise.all([
@@ -386,13 +380,9 @@ export const fetchOnboardingStatus = createServerFn({ method: 'GET' }).handler(a
       columns: { id: true },
       where: isNull(helpCenterArticles.deletedAt),
     }),
-    db.query.helpCenterArticles.findFirst({
+    db.query.changelogEntries.findFirst({
       columns: { id: true },
-      where: and(
-        isNull(helpCenterArticles.deletedAt),
-        isNotNull(helpCenterArticles.publishedAt),
-        lte(helpCenterArticles.publishedAt, new Date())
-      ),
+      where: and(isNull(changelogEntries.deletedAt), isNotNull(changelogEntries.publishedAt)),
     }),
     db.query.statusComponents.findFirst({
       columns: { id: true },
@@ -407,11 +397,8 @@ export const fetchOnboardingStatus = createServerFn({ method: 'GET' }).handler(a
   const permissions = permissionsForLegacyRole(auth.principal.role)
   const hasBranding = Boolean(orgSettings?.logoKey)
   const hasWidgetEnabled = widgetConfig.enabled === true
-  // Messenger is "live" when the messenger surface is on and the widget is enabled
-  const hasMessengerEnabled =
-    hasWidgetEnabled &&
-    (widgetConfig.messenger?.enabled ?? false) &&
-    (widgetConfig.tabs?.messenger ?? false)
+  // Messenger is "live" when the widget is on and the Messages tab is shown.
+  const hasMessengerEnabled = hasWidgetEnabled && (widgetConfig.tabs?.messenger ?? true)
   const hasIntegration = Boolean(connectedIntegration)
   const hasInternalBoard = orgBoards.some((board) => board.access.view === 'team')
   const publicBoard = orgBoards.find((board) => board.access.view === 'anonymous')
@@ -425,6 +412,7 @@ export const fetchOnboardingStatus = createServerFn({ method: 'GET' }).handler(a
       has_widget: hasWidgetEnabled,
       has_messenger: hasMessengerEnabled,
       has_help_article: Boolean(helpArticle),
+      has_published_changelog: Boolean(publishedChangelog),
       has_status_component: Boolean(statusComponent),
       use_case: setupState?.useCase,
     },
@@ -440,13 +428,20 @@ export const fetchOnboardingStatus = createServerFn({ method: 'GET' }).handler(a
     hasInternalBoard,
     memberCount: humanMembers.length,
     hasBranding,
-    hasWidgetEnabled,
     hasWidgetInstalled: Boolean(orgSettings?.widgetInstalledFirstSeenAt),
-    widgetLastSeenAt: orgSettings?.widgetInstalledLastSeenAt?.toISOString() ?? null,
     widgetOriginHost: orgSettings?.widgetInstalledOriginHost ?? null,
+    widgetLastDetectedAt: orgSettings?.widgetInstalledLastSeenAt
+      ? orgSettings.widgetInstalledLastSeenAt.toISOString()
+      : null,
+    widgetSdkVersion: orgSettings?.widgetInstalledSdkVersion ?? null,
+    currentWidgetSdkVersion: CURRENT_WIDGET_SDK_VERSION,
+    widgetSdkNeedsUpdate:
+      Boolean(orgSettings?.widgetInstalledFirstSeenAt) &&
+      widgetSdkNeedsUpdate(orgSettings?.widgetInstalledSdkVersion, CURRENT_WIDGET_SDK_VERSION),
+    hasWidgetEnabled,
     hasMessengerEnabled,
     hasHelpArticle: Boolean(helpArticle),
-    hasPublishedHelpArticle: Boolean(publishedHelpArticle),
+    hasPublishedChangelog: Boolean(publishedChangelog),
     hasStatusComponent: Boolean(statusComponent),
     hasIntegration,
     hasFirstWin: firstWin.reached,
@@ -473,13 +468,15 @@ export const fetchOnboardingStatus = createServerFn({ method: 'GET' }).handler(a
       supportInbox: flags.supportInbox,
       helpCenter: flags.helpCenter,
       statusPage: flags.statusPage,
+      changelog: flags.changelog,
       integrations: tierLimits.features.integrations,
     },
   }
 })
 
-/** Save or clear a launch-plan task preference. Required steps can be moved
- * later; only optional customisation can be hidden. */
+/** Save or clear a launch-plan skip. Any incomplete non-milestone task can
+ *  be skipped; storage is always `dismissed`. Legacy clients may still send
+ *  `deferred`, which is accepted and normalized. */
 const taskResolutionSchema = z.object({
   outcome: z.enum(['product_feedback', 'customer_support', 'help_center', 'internal']),
   taskId: z.string().min(1),
@@ -497,14 +494,14 @@ export const setLaunchTaskResolutionFn = createServerFn({ method: 'POST' })
       (candidate) => candidate.id === data.taskId
     )
     if (!task) throw new Error('Unknown launch task')
-    if (data.resolution === 'deferred' && task.classification !== 'prerequisite') {
-      throw new Error('Only setup steps can be moved later')
+    if (task.classification === 'first_win' && data.resolution) {
+      throw new Error('The milestone cannot be skipped')
     }
-    if (data.resolution === 'dismissed' && task.classification !== 'polish') {
-      throw new Error('Only optional customization can be skipped')
+    if (task.isCompleted && data.resolution) {
+      throw new Error('Completed tasks cannot be skipped')
     }
-    if (task.isCompleted && data.resolution)
-      throw new Error('Completed tasks cannot be deferred or dismissed')
+
+    const storedResolution = data.resolution === 'deferred' ? 'dismissed' : data.resolution
 
     const { mutateSetupStateAtomic } = await import('@/lib/server/setup-state')
     const { state } = await mutateSetupStateAtomic((current) => {
@@ -512,9 +509,9 @@ export const setLaunchTaskResolutionFn = createServerFn({ method: 'POST' })
         throw new Error('Task outcome does not match the workspace goal')
       const taskResolutions = { ...(current.taskResolutions ?? {}) }
       const outcomeTasks = { ...(taskResolutions[data.outcome] ?? {}) }
-      if (data.resolution) {
+      if (storedResolution) {
         outcomeTasks[data.taskId] = {
-          resolution: data.resolution,
+          resolution: storedResolution,
           resolvedAt: new Date().toISOString(),
         }
       } else {
@@ -531,7 +528,7 @@ export const setLaunchTaskResolutionFn = createServerFn({ method: 'POST' })
       }
     })
 
-    log.info({ task_id: data.taskId, resolution: data.resolution }, 'launch task resolution saved')
+    log.info({ task_id: data.taskId, resolution: storedResolution }, 'launch task resolution saved')
     return { taskResolutions: state.taskResolutions ?? {} }
   })
 
@@ -575,13 +572,16 @@ export const fetchIntegrationByType = createServerFn({ method: 'GET' })
 
     const { integrations } = await import('@/lib/server/db')
     const { getIntegration } = await import('@/lib/server/integrations')
-    const { hasPlatformCredentials } =
+    const { hasPlatformCredentials, arePlatformCredentialsManaged } =
       await import('@/lib/server/domains/platform-credentials/platform-credential.service')
 
     const definition = getIntegration(data.type)
     const platformCredentialFields = definition?.platformCredentials ?? []
+    const platformCredentialsManaged = await arePlatformCredentialsManaged(data.type)
     const platformCredentialsConfigured =
-      platformCredentialFields.length === 0 || (await hasPlatformCredentials(data.type))
+      platformCredentialFields.length === 0 ||
+      (await hasPlatformCredentials(data.type)) ||
+      platformCredentialsManaged
 
     const integration = await db.query.integrations.findFirst({
       where: eq(integrations.integrationType, data.type),
@@ -594,8 +594,10 @@ export const fetchIntegrationByType = createServerFn({ method: 'GET' })
       log.debug({ type: data.type }, 'fetch integration by type not found')
       return {
         integration: null,
+        syncHistoryAvailable: false,
         platformCredentialFields,
         platformCredentialsConfigured,
+        platformCredentialsManaged,
       }
     }
 
@@ -637,6 +639,23 @@ export const fetchIntegrationByType = createServerFn({ method: 'GET' })
     }
 
     const notificationChannels = [...channelMap.values()]
+    const { readSyncHealth } = await import('@/lib/server/integrations/sync/health')
+    const {
+      connectionIsDestination,
+      readSlackAssistantEnabled,
+      syncHistoryAvailable,
+      writesLedger,
+    } = await import('@/lib/server/integrations/sync/availability')
+    const syncHealth = await readSyncHealth(integration)
+    const syncHistoryAvailableFlag = syncHistoryAvailable({
+      provider: data.type,
+      status: integration.status,
+      config: integrationConfig,
+      notificationChannels,
+      writesLedger: writesLedger(definition),
+      connectionIsDestination: connectionIsDestination(definition),
+      slackAssistantEnabled: await readSlackAssistantEnabled(data.type),
+    }).available
 
     return {
       integration: {
@@ -650,17 +669,18 @@ export const fetchIntegrationByType = createServerFn({ method: 'GET' })
           enabled: m.enabled,
         })),
         notificationChannels,
-        // Per-integration health telemetry (IF WO-14 columns): last successful
-        // outbound delivery, last inbound webhook, and last recorded error.
+        // Sync outcomes belong to the current installation; connection errors
+        // remain independent of successful or failed deliveries.
         health: {
-          lastOutboundAt: integration.lastOutboundAt?.toISOString() ?? null,
-          lastInboundAt: integration.lastInboundAt?.toISOString() ?? null,
+          ...syncHealth,
           lastError: integration.lastError ?? null,
           lastErrorAt: integration.lastErrorAt?.toISOString() ?? null,
         },
       },
+      syncHistoryAvailable: syncHistoryAvailableFlag,
       platformCredentialFields,
       platformCredentialsConfigured,
+      platformCredentialsManaged,
     }
   })
 
@@ -674,7 +694,7 @@ export const fetchIntegrationByType = createServerFn({ method: 'GET' })
  * `getRegisteredOidcProviderIds` gate the auth engine and enforcement use
  * (enabled + credentials + `customOidcProvider` tier). It is scoped to `'sso'`
  * specifically because the onboarding button hardcodes
- * `signIn.oauth2({ providerId: 'sso' })`: a true here must mean *that* provider
+ * `signIn.social({ provider: 'sso' })`: a true here must mean *that* provider
  * is callable, not merely that some other (`custom-oidc` / `oidc_*`) provider
  * exists. Reading the registry (not the legacy `authConfig.ssoOidc` blob) means
  * the legacy-config cleanup can run without breaking the button. In practice
@@ -721,6 +741,7 @@ export const checkOnboardingState = createServerFn({ method: 'GET' }).handler(as
       hasSettings: false,
       setupState: null,
       isOnboardingComplete: false,
+      platformHostname: null,
     }
   }
 
@@ -744,6 +765,10 @@ export const checkOnboardingState = createServerFn({ method: 'GET' }).handler(as
   const currentSettings = await getSettings()
   const setupState = getSetupState(currentSettings?.setupState ?? null)
   const isOnboardingComplete = checkComplete(setupState)
+  const { parseIdentityProjection } =
+    await import('@/lib/server/domains/settings/cloud/identity-projection')
+  const platformHostname =
+    parseIdentityProjection(currentSettings?.cloudIdentity)?.platformHostname ?? null
 
   log.debug(
     {
@@ -767,6 +792,7 @@ export const checkOnboardingState = createServerFn({ method: 'GET' }).handler(as
     hasSettings: !!currentSettings,
     setupState,
     isOnboardingComplete,
+    platformHostname,
   }
 })
 
@@ -1070,10 +1096,6 @@ export const sendInvitationFn = createServerFn({ method: 'POST' })
     log.info({ role: data.role }, 'send invitation')
     const auth = await requireAuth({ permission: PERMISSIONS.MEMBER_MANAGE })
 
-    // Tier-limit gate (no-op in OSS).
-    const { enforceSeatLimit } = await import('@/lib/server/domains/principals/seat-limit')
-    await enforceSeatLimit()
-
     const email = data.email.toLowerCase()
 
     // Parallelize invitation and user validation queries
@@ -1129,18 +1151,24 @@ export const sendInvitationFn = createServerFn({ method: 'POST' })
     const minted = await generateInvitationMagicLink(email, callbackURL, portalUrl)
     const { url: inviteLink, token: magicLinkToken } = minted
 
-    await db.insert(invitation).values({
-      id: invitationId,
-      email,
-      name: data.name || null,
-      role: data.role,
-      roleId: (data.roleId as RoleId | undefined) ?? null,
-      status: 'pending',
-      expiresAt,
-      lastSentAt: now,
-      inviterId: auth.user.id,
-      createdAt: now,
-      magicLinkTokens: [magicLinkToken],
+    // Seat count and the pending-invite insert share one transaction and a
+    // settings-row lock so two concurrent invites cannot both take the last seat.
+    await db.transaction(async (tx) => {
+      const { enforceSeatLimit } = await import('@/lib/server/domains/principals/seat-limit')
+      await enforceSeatLimit({ executor: tx })
+      await tx.insert(invitation).values({
+        id: invitationId,
+        email,
+        name: data.name || null,
+        role: data.role,
+        roleId: (data.roleId as RoleId | undefined) ?? null,
+        status: 'pending',
+        expiresAt,
+        lastSentAt: now,
+        inviterId: auth.user.id,
+        createdAt: now,
+        magicLinkTokens: [magicLinkToken],
+      })
     })
 
     const { getEmailSafeUrl } = await import('@/lib/server/storage/s3')
@@ -1597,83 +1625,13 @@ export const evaluateAllSegmentsFn = createServerFn({ method: 'POST' }).handler(
 
 // ============================================
 // User Attribute Definitions
+// (moved to ./user-attributes; re-exported here so existing
+// `functions/admin` importers keep working)
 // ============================================
 
-const userAttributeIdSchema = z.object({
-  id: z.string().min(1),
-})
-
-const createUserAttributeSchema = z.object({
-  key: z.string().min(1).max(64),
-  label: z.string().min(1).max(128),
-  description: z.string().max(512).optional(),
-  type: z.enum(['string', 'number', 'boolean', 'date', 'currency']),
-  currencyCode: z
-    .enum(['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'CHF', 'CNY', 'INR', 'BRL'])
-    .optional(),
-  externalKey: z.string().max(256).optional().nullable(),
-})
-
-const updateUserAttributeSchema = z.object({
-  id: z.string().min(1),
-  label: z.string().min(1).max(128).optional(),
-  description: z.string().max(512).optional().nullable(),
-  type: z.enum(['string', 'number', 'boolean', 'date', 'currency']).optional(),
-  currencyCode: z
-    .enum(['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'CHF', 'CNY', 'INR', 'BRL'])
-    .optional()
-    .nullable(),
-  externalKey: z.string().max(256).optional().nullable(),
-})
-
-/**
- * List all user attribute definitions.
- */
-export const listUserAttributesFn = createServerFn({ method: 'GET' }).handler(async () => {
-  await requireAuth({ permission: PERMISSIONS.USER_ATTRIBUTE_VIEW })
-  return listUserAttributes()
-})
-
-/**
- * Create a new user attribute definition.
- */
-export const createUserAttributeFn = createServerFn({ method: 'POST' })
-  .validator(createUserAttributeSchema)
-  .handler(async ({ data }) => {
-    await requireAuth({ permission: PERMISSIONS.USER_ATTRIBUTE_MANAGE })
-    return createUserAttribute({
-      key: data.key,
-      label: data.label,
-      description: data.description,
-      type: data.type,
-      currencyCode: data.currencyCode,
-      externalKey: data.externalKey,
-    })
-  })
-
-/**
- * Update an existing user attribute definition.
- */
-export const updateUserAttributeFn = createServerFn({ method: 'POST' })
-  .validator(updateUserAttributeSchema)
-  .handler(async ({ data }) => {
-    await requireAuth({ permission: PERMISSIONS.USER_ATTRIBUTE_MANAGE })
-    return updateUserAttribute(data.id as UserAttributeId, {
-      label: data.label,
-      description: data.description,
-      type: data.type,
-      currencyCode: data.currencyCode,
-      externalKey: data.externalKey,
-    })
-  })
-
-/**
- * Delete a user attribute definition.
- */
-export const deleteUserAttributeFn = createServerFn({ method: 'POST' })
-  .validator(userAttributeIdSchema)
-  .handler(async ({ data }) => {
-    await requireAuth({ permission: PERMISSIONS.USER_ATTRIBUTE_MANAGE })
-    await deleteUserAttribute(data.id as UserAttributeId)
-    return { deleted: true }
-  })
+export {
+  listUserAttributesFn,
+  createUserAttributeFn,
+  updateUserAttributeFn,
+  deleteUserAttributeFn,
+} from './user-attributes'

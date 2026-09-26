@@ -3,12 +3,12 @@ import { render } from '@react-email/components'
 import { TicketEventEmail } from '../templates/ticket-event'
 
 const base = {
-  heading: 'پاسخ جدید به تیکت شما',
-  intro: 'Sarah به #142 با عنوان «Export fails» پاسخ داد:',
+  heading: 'New reply on your ticket',
+  intro: 'Sarah replied to #142 "Export fails":',
   ctaUrl: 'https://acme.example.com/support/ticket/ticket_1',
-  ctaLabel: 'مشاهده‌ی تیکت',
+  ctaLabel: 'View your ticket',
   organizationName: 'Acme',
-  reason: 'این ایمیل به این دلیل برای شما ارسال شده که تیکت شمارهٔ #142 را در Acme باز کرده‌اید.',
+  reason: "You're receiving this because you opened ticket #142 at Acme.",
   preferencesUrl: 'https://acme.example.com/settings/preferences',
 }
 
@@ -24,8 +24,8 @@ describe('TicketEventEmail', () => {
     expect(html).toContain('First paragraph of the reply.')
     expect(html).toContain('Second paragraph after a blank line.')
     expect(html).toContain('Sarah')
-    expect(html).toContain('مشاهده‌ی تیکت')
-    expect(html).toContain('مدیریت تنظیمات اعلان‌ها')
+    expect(html).toContain('View your ticket')
+    expect(html).toContain('Manage notification preferences')
     expect(html).toContain('https://acme.example.com/settings/preferences')
   })
 
@@ -41,15 +41,15 @@ describe('TicketEventEmail', () => {
     const withChange = await render(
       <TicketEventEmail
         {...base}
-        heading="تیکت شما حل شد"
+        heading="Your ticket was resolved"
         statusChange={{ previousLabel: 'In progress', newLabel: 'Resolved' }}
       />
     )
-    expect(withChange).toContain('در حال انجام')
-    expect(withChange).toContain('حل‌شده')
+    expect(withChange).toContain('In progress')
+    expect(withChange).toContain('Resolved')
 
     const without = await render(<TicketEventEmail {...base} />)
-    expect(without).not.toContain('در حال انجام')
+    expect(without).not.toContain('In progress')
   })
 
   it('renders the SLA fact line and note blocks when present', async () => {

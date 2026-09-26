@@ -25,39 +25,39 @@ export function RecoveryCodeUsedEmail({
 }: RecoveryCodeUsedEmailProps) {
   const workspaceLabel = workspaceName ? ` for ${workspaceName}` : ''
   return (
-    <EmailLayout preview={`برای ورود از کد بازیابی استفاده شد${workspaceLabel}`} logoUrl={logoUrl}>
-      <Heading style={{ ...typography.h1, textAlign: 'center' }}>از کد بازیابی استفاده شد</Heading>
+    <EmailLayout preview={`A recovery code was used to sign in${workspaceLabel}`} logoUrl={logoUrl}>
+      <Heading style={{ ...typography.h1, textAlign: 'center' }}>A recovery code was used</Heading>
       <Text style={{ ...typography.text, textAlign: 'center' }}>
-        شخصی با استفاده از یکی از کدهای بازیابی ذخیره‌شده‌ی شما به حساب‌تان وارد شده است{workspaceLabel}.
+        Someone signed in to your account{workspaceLabel} using one of your saved recovery codes.
       </Text>
 
       <Section style={{ marginTop: '24px', marginBottom: '24px' }}>
         <Text style={typography.textSmall}>
-          <strong>زمان:</strong> {occurredAt}
+          <strong>When:</strong> {occurredAt}
         </Text>
         {ipAddress ? (
           <Text style={typography.textSmall}>
-            <strong>نشانی IP:</strong> {ipAddress}
+            <strong>IP address:</strong> {ipAddress}
           </Text>
         ) : null}
         {userAgent ? (
           <Text style={typography.textSmall}>
-            <strong>دستگاه:</strong> {userAgent}
+            <strong>Device:</strong> {userAgent}
           </Text>
         ) : null}
       </Section>
 
       <Text style={typography.text}>
-        اگر این کار توسط شما انجام شده است، اقدامی لازم نیست. این کد مصرف شده و دوباره قابل استفاده نیست.
+        If this was you, no action is needed. The code is now spent and can&apos;t be reused.
       </Text>
       <Text style={typography.text}>
-        اگر شما نبوده‌اید، فوراً وارد حساب شوید و کدهای بازیابی خود را تعویض کنید. شخصی که از کد
-        استفاده کرده اکنون نشست فعال دارد؛ آن را از تنظیمات امنیتی لغو کنید.
+        If this wasn&apos;t you, sign in and rotate your recovery codes immediately. The person who
+        used the code now has an active session — revoke it from your security settings.
       </Text>
 
       <TransactionalFooter>
-        این ایمیل به دلیل استفاده از یکی از کدهای بازیابی حساب شما ارسال شده است. این هشدارها
-        ضروری هستند و قابل غیرفعال‌کردن نیستند.
+        You&apos;re receiving this because a recovery code on your account was just used. These
+        alerts are required and can&apos;t be disabled.
       </TransactionalFooter>
     </EmailLayout>
   )

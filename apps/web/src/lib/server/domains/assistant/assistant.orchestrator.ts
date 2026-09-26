@@ -34,7 +34,7 @@ import {
 } from '@/lib/server/domains/assistant/assistant-activity-snapshot'
 import { enforceAiTokenBudget } from '@/lib/server/domains/settings/tier-enforce'
 import { TierLimitError } from '@/lib/server/errors/tier-limit-error'
-import { isFeatureEnabled } from '@/lib/server/domains/settings/settings.service'
+import { EntitlementRequiredError } from '@/lib/server/errors/entitlement-error'
 import { getLiveWorkflowReferencedAttributeKeys } from '@/lib/server/domains/workflows/workflow.service'
 import { classifyConversationAttributes } from '@/lib/server/domains/conversation-attributes/ai-classification.service'
 import {
@@ -92,7 +92,6 @@ export function __resetAssistantPrincipalMemo(): void {
  */
 async function triggerLiveAttributeRecheck(conversationId: ConversationId): Promise<void> {
   try {
-    if (!(await isFeatureEnabled('inboxAi'))) return
     const keys = await getLiveWorkflowReferencedAttributeKeys()
     if (keys.size === 0) return
     await classifyConversationAttributes(conversationId, {
@@ -132,6 +131,13 @@ export async function previewAssistantTurnForConversation(
 ): Promise<AssistantTurnEligibility> {
   if (!isAssistantConfigured()) return 'declined'
   try {
+    const { requireEntitlement } = await import('@/lib/server/domains/settings/cloud/entitlements')
+    await requireEntitlement('aiAssistant')
+  } catch (err) {
+    if (err instanceof EntitlementRequiredError) return 'declined'
+    throw err
+  }
+  try {
     await enforceAiTokenBudget()
   } catch (err) {
     if (err instanceof TierLimitError) return 'declined'
@@ -164,6 +170,17 @@ export async function runAssistantTurnForConversation(
   }
 ): Promise<void> {
   if (!isAssistantConfigured()) return
+
+  try {
+    const { requireEntitlement } = await import('@/lib/server/domains/settings/cloud/entitlements')
+    await requireEntitlement('aiAssistant')
+  } catch (err) {
+    if (err instanceof EntitlementRequiredError) {
+      log.info({ conversationId }, 'assistant turn skipped: ai assistant not entitled')
+      return
+    }
+    throw err
+  }
 
   try {
     await enforceAiTokenBudget()
@@ -347,9 +364,12 @@ export async function runAssistantTurnForConversation(
     // (today `internal`, the copilot leak gate, and `updatedAt`, the copilot
     // freshness line) can never leak into storage — it simply isn't projected,
     // no per-field strip to forget.
-    const persistedCitations = result.citations.map(
-      (c): ConversationMessageCitation => ({ type: c.type, id: c.id, title: c.title, url: c.url })
-    )
+    const persistedCitations = result.citations.map((c): ConversationMessageCitation => ({
+      type: c.type,
+      id: c.id,
+      title: c.title,
+      url: c.url,
+    }))
     await appendAssistantReply(conversationId, result.text, author, {
       waiting: result.escalation?.mode === 'handoff',
       citations: persistedCitations,

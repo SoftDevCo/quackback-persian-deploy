@@ -1,9 +1,18 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useQuery, keepPreviousData } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { z } from 'zod'
-import { lazy, Suspense, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react'
+import {
+  lazy,
+  Suspense,
+  useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
-import { FormattedMessage } from 'react-intl'
+import { FormattedMessage, useIntl } from 'react-intl'
 import { CheckCircleIcon } from '@heroicons/react/24/solid'
 import { ArrowLeftIcon } from '@heroicons/react/24/outline'
 import { WidgetVoteButton } from '@/components/widget/widget-vote-button'
@@ -14,23 +23,26 @@ import {
   type WidgetView,
   resolveInitialTab,
   resolveInitialView,
-  homeEnabled,
   contentSurfaceCount,
   isExpandedView,
+  visibleTabsForVisitor,
 } from '@/components/widget/widget-nav'
+import { resolveOpenCommand, type WidgetComposeRequest } from '@/components/widget/widget-compose'
 import { WidgetHome } from '@/components/widget/widget-home'
 import { WidgetOverview } from '@/components/widget/widget-overview'
 import { WidgetHeroBackdrop } from '@/components/widget/widget-hero-backdrop'
 import type { ConversationId } from '@quackback/ids'
 import { useWidgetAuth } from '@/components/widget/widget-auth-provider'
 import { portalQueries } from '@/lib/client/queries/portal'
-import { publicChangelogQueries } from '@/lib/client/queries/changelog'
-import { publicHelpCenterQueries } from '@/lib/client/queries/help-center'
-import { fetchBoardCapabilitiesFn } from '@/lib/server/functions/portal'
-import { listPublicArticlesFn } from '@/lib/server/functions/help-center'
+import { widgetChangelogListQuery } from '@/components/widget/widget-changelog-query'
+import { widgetHelpCategoriesQuery } from '@/components/widget/widget-help-query'
+import { widgetFetchBoardCapabilitiesFn } from '@/lib/server/functions/widget/posts'
+import { getShowPoweredByFn } from '@/lib/server/functions/powered-by'
+import { widgetListPublicArticlesFn } from '@/lib/server/functions/widget/help'
 import { getWidgetAuthHeaders } from '@/lib/client/widget-auth'
 import { sendToHost } from '@/lib/client/widget-bridge'
 import { widgetQueryKeys, INITIAL_SESSION_VERSION } from '@/lib/client/hooks/use-widget-vote'
+import { DEFAULT_LOCALE } from '@/lib/shared/i18n'
 import {
   CONVERSATION_PRESENCE_QUERY_KEY,
   useConversationPresence,
@@ -38,8 +50,18 @@ import {
 import { conversationAvailable } from '@/lib/shared/conversation/presence'
 import { ConversationPresenceBadge } from '@/components/shared/conversation/conversation-presence-badge'
 import { Avatar } from '@/components/ui/avatar'
-import { Spinner } from '@/components/shared/spinner'
+import {
+  WidgetArticleSkeleton,
+  WidgetChangelogListSkeleton,
+  WidgetConversationListSkeleton,
+  WidgetHelpCategoryViewSkeleton,
+  WidgetHelpViewSkeleton,
+  WidgetMessengerViewSkeleton,
+  WidgetPostDetailSkeleton,
+  WidgetTicketListSkeleton,
+} from '@/components/widget/widget-skeletons'
 import { conversationSummaryKey } from '@/components/widget/use-messenger-summary'
+import { useTicketStageBadge } from '@/components/widget/use-ticket-stage-badge'
 
 // Secondary views load behind lazy() boundaries so the iframe's first paint
 // only needs the shell + Home/feedback — the detail views carry the
@@ -97,24 +119,15 @@ export const Route = createFileRoute('/widget/')({
     const feedbackProductEnabled = settings?.featureFlags?.feedback ?? true
     const changelogProductEnabled = settings?.featureFlags?.changelog ?? true
 
-    // Same triple-gate as the `messages` tab below: Support Inbox flag +
-    // Messenger enabled + tab on. Hoisted so we only compute presence when
-    // Messenger shows.
+    // Support Inbox flag + Messages tab on. Messenger is on whenever the
+    // module is; the tab is the widget surface. Hoisted so we only compute
+    // presence when Messenger shows.
     const messengerTabEnabled =
       ((settings?.featureFlags as { supportInbox?: boolean } | undefined)?.supportInbox ?? false) &&
-      (settings?.publicWidgetConfig?.messenger?.enabled ?? false) &&
       (settings?.publicWidgetConfig?.tabs?.messenger ?? false)
-
-    // Converged Messages surface: a tickets-enabled workspace surfaces its
-    // ticket pairs through the Messages tab even with the messenger off
-    // (email-first workspaces) — the chat-start affordance stays gated on the
-    // messenger via `messengerEnabled` below.
-    const ticketsEnabled =
-      (settings?.featureFlags as { supportTickets?: boolean } | undefined)?.supportTickets ?? false
 
     const helpTabEnabled =
       ((settings?.featureFlags as { helpCenter?: boolean } | undefined)?.helpCenter ?? false) &&
-      (settings?.helpCenterConfig?.enabled ?? false) &&
       (settings?.publicWidgetConfig?.tabs?.help ?? false)
     const changelogTabEnabled =
       changelogProductEnabled && (settings?.publicWidgetConfig?.tabs?.changelog ?? false)
@@ -160,8 +173,8 @@ export const Route = createFileRoute('/widget/')({
       // unwrapped helper): its handler — and the database-reaching presence
       // import inside it — is stripped from the client bundle.
       messengerTabEnabled
-        ? import('@/lib/server/functions/conversation')
-            .then(({ getConversationPresenceFn }) => getConversationPresenceFn())
+        ? import('@/lib/server/functions/widget/conversation')
+            .then(({ widgetGetConversationPresenceFn }) => widgetGetConversationPresenceFn())
             .then((presence) => {
               queryClient.setQueryData(CONVERSATION_PRESENCE_QUERY_KEY, presence)
             })
@@ -169,29 +182,33 @@ export const Route = createFileRoute('/widget/')({
         : Promise.resolve(),
       // Never break the widget load over the decorative header avatar cluster.
       (settings?.publicWidgetConfig?.home?.showTeamAvatars ?? true)
-        ? import('@/lib/server/functions/conversation')
-            .then(({ getWidgetTeamAvatarsFn }) => getWidgetTeamAvatarsFn())
+        ? import('@/lib/server/functions/widget/conversation')
+            .then(({ widgetGetTeamAvatarsFn }) => widgetGetTeamAvatarsFn())
             .then((avatars) => {
               team = avatars
             })
             .catch(() => {})
         : Promise.resolve(),
       changelogTabEnabled
-        ? queryClient.ensureInfiniteQueryData(publicChangelogQueries.list()).catch(() => {})
+        ? queryClient
+            .ensureInfiniteQueryData(widgetChangelogListQuery(INITIAL_SESSION_VERSION))
+            .catch(() => {})
         : Promise.resolve(),
       helpTabEnabled
-        ? queryClient.ensureQueryData(publicHelpCenterQueries.categories()).catch(() => {})
+        ? queryClient
+            .ensureQueryData(widgetHelpCategoriesQuery(INITIAL_SESSION_VERSION, DEFAULT_LOCALE))
+            .catch(() => {})
         : Promise.resolve(),
       helpTabEnabled
-        ? listPublicArticlesFn({ data: { limit: 4 } })
+        ? widgetListPublicArticlesFn({ data: { limit: 4 } })
             .then((res) => {
               topArticles = res.items.map((a) => ({ slug: a.slug, title: a.title }))
             })
             .catch(() => {})
         : Promise.resolve(),
       messengerTabEnabled
-        ? import('@/lib/server/functions/conversation')
-            .then(({ getMyConversationFn }) => getMyConversationFn())
+        ? import('@/lib/server/functions/widget/conversation')
+            .then(({ widgetGetMyConversationFn }) => widgetGetMyConversationFn())
             .then((res) => {
               queryClient.setQueryData(conversationSummaryKey(INITIAL_SESSION_VERSION), {
                 conversation: res.conversation ?? null,
@@ -206,6 +223,8 @@ export const Route = createFileRoute('/widget/')({
       widgetQueryKeys.votedPosts.bySession(INITIAL_SESSION_VERSION),
       new Set(portalData.votedPostIds)
     )
+
+    const showPoweredBy = await getShowPoweredByFn()
 
     return {
       posts: portalData.posts.items.map((p) => ({
@@ -242,26 +261,17 @@ export const Route = createFileRoute('/widget/')({
       tabs: {
         feedback: feedbackProductEnabled && (settings?.publicWidgetConfig?.tabs?.feedback ?? true),
         changelog: changelogTabEnabled,
-        help:
-          ((settings?.featureFlags as { helpCenter?: boolean } | undefined)?.helpCenter ?? false) &&
-          (settings?.helpCenterConfig?.enabled ?? false) &&
-          (settings?.publicWidgetConfig?.tabs?.help ?? false),
-        // Support Inbox flag + Messenger enabled + tab on (computed above), OR
-        // tickets on (the converged surface lists ticket pairs here). The
-        // persisted config names the messenger surface `messenger`; the widget
-        // speaks `messages`.
-        messages: messengerTabEnabled || ticketsEnabled,
-        // The requester's own-tickets list — projected already AND-ed with the
-        // supportTickets flag in the public widget config (fail-closed).
+        help: helpTabEnabled,
+        // The persisted config names the messenger surface `messenger`; the
+        // widget speaks `messages`. Tickets is its own stored tab (hidden in
+        // the bar when this visitor has none).
+        messages: messengerTabEnabled,
         tickets: settings?.publicWidgetConfig?.tabs?.tickets ?? false,
         // Admin opt-out for the aggregated Home tab (defaults to shown).
         home: settings?.publicWidgetConfig?.tabs?.home ?? true,
       },
       // Home surface customisation (greeting, hero style, quick-link cards).
       home: settings?.publicWidgetConfig?.home ?? null,
-      // Per-locale copy overrides; the Home surface resolves greeting/subtitle
-      // against the visitor's locale client-side.
-      translations: settings?.publicWidgetConfig?.translations ?? null,
       // Workspace logo for the Home header (branding config).
       logoUrl: settings?.brandingData?.logoUrl ?? null,
       // Top help articles for the Home search card (public; SSR'd).
@@ -288,13 +298,14 @@ export const Route = createFileRoute('/widget/')({
         widgetSignIn: settings?.publicPortalConfig?.portalAccess?.widgetSignIn ?? false,
       },
       // Whether the visitor can START a conversation (the messenger proper).
-      // False for tickets-only workspaces: Messages lists their threads, but
-      // the chat-start affordances hide (agents/email initiate).
+      // False when the Messages tab is off — tickets-only workspaces hide
+      // the chat-start affordances (agents/email initiate).
       messengerEnabled: messengerTabEnabled,
       // The portal's own origin (BASE_URL env), resolved server-side so the
       // widget handoff URL always points at the portal host — not at the widget
       // iframe origin, which may differ in self-hosted deployments.
       portalOrigin: getBaseUrl(),
+      showPoweredBy,
     }
   },
   component: WidgetRoute,
@@ -322,39 +333,50 @@ interface SuccessPost {
  * feel of polished in-product messengers. Honors prefers-reduced-motion.
  *
  * Every view here is a lazy() component, so each transition carries its own
- * Suspense boundary — a suspended view shows a centered spinner in place
- * without disturbing the kept-mounted feedback view outside the boundary.
- * The idle-time prefetch makes the fallback a cold-cache-only sight.
+ * Suspense boundary. The fallback is the SAME skeleton the view itself shows
+ * while its data loads, so a cold-cache tab click paints one continuous
+ * placeholder from chunk fetch through data fetch — no spinner → skeleton →
+ * content hop. The idle-time prefetch makes the chunk phase a rare sight.
+ *
+ * `focusOnMount` moves keyboard/screen-reader focus into the new view. Push
+ * navigations and back navigations both leave focus on an element that has
+ * just unmounted (the tapped row, the back chevron), which would otherwise
+ * drop it to <body>. Tab-bar switches keep focus on the tab.
  */
 function ViewTransition({
   id,
   kind,
+  fallback,
+  focusOnMount = false,
   children,
 }: {
   id: string
   kind: 'root' | 'push'
+  fallback: ReactNode
+  focusOnMount?: boolean
   children: ReactNode
 }) {
   const reduceMotion = useReducedMotion()
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (focusOnMount) ref.current?.focus({ preventScroll: true })
+    // Mount-only by design: refocusing on every prop change would yank focus
+    // out of whatever the visitor moved to inside the view.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   return (
     <motion.div
       key={id}
+      ref={ref}
+      tabIndex={-1}
       initial={
         reduceMotion ? false : kind === 'push' ? { x: 28, opacity: 0 } : { y: 10, opacity: 0 }
       }
       animate={{ x: 0, y: 0, opacity: 1 }}
       transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
-      className="h-full"
+      className="h-full outline-none"
     >
-      <Suspense
-        fallback={
-          <div className="flex h-full items-center justify-center">
-            <Spinner size="lg" />
-          </div>
-        }
-      >
-        {children}
-      </Suspense>
+      <Suspense fallback={fallback}>{children}</Suspense>
     </motion.div>
   )
 }
@@ -373,15 +395,17 @@ function WidgetPage() {
     portalAccess,
     portalOrigin,
     home,
-    translations,
     logoUrl,
     topArticles,
     teamName,
     assistant,
     team,
     messengerEnabled,
+    showPoweredBy,
   } = Route.useLoaderData()
+  const { board: initialBoardSlug } = Route.useSearch()
   const { ensureSession, sessionVersion } = useWidgetAuth()
+  const intl = useIntl()
 
   // The loader seeds boardPermissions for the anonymous SSR baseline (no Bearer
   // at loader time). Refetch it for the REAL actor with the widget's Bearer
@@ -389,30 +413,38 @@ function WidgetPage() {
   // feed gates votes/submission per the actual actor instead of OR-ing in a
   // blanket isIdentified (which advertised CTAs on segments/team boards the
   // actor cannot act on). Seeded with the loader map so SSR + first paint match.
-  const { data: livePermissions } = useQuery({
-    queryKey: ['widget', 'boardPermissions', sessionVersion],
-    queryFn: () => fetchBoardCapabilitiesFn({ headers: getWidgetAuthHeaders() }),
+  const { data: liveCapabilities } = useQuery({
+    queryKey: ['widget', 'boardCapabilities', sessionVersion],
+    queryFn: () => widgetFetchBoardCapabilitiesFn({ headers: getWidgetAuthHeaders() }),
     // Seed ONLY the initial (anonymous, SSR) key from the loader. initialData
     // stamps an entry fresh as of now, so seeding it on every key would also
     // mark the post-identify key fresh and suppress the Bearer refetch within
     // staleTime — leaving an identified viewer stuck on the anonymous baseline.
-    // After identify the key changes, carries no initialData, and refetches with
-    // the Bearer while keepPreviousData shows the prior map meanwhile.
-    initialData: sessionVersion === INITIAL_SESSION_VERSION ? boardPermissions : undefined,
-    placeholderData: keepPreviousData,
+    // After identify the key changes, carries no initialData, and refetches
+    // with the Bearer. Do not keepPreviousData — logout/switch would otherwise
+    // show the prior visitor's members-only boards until the new fetch lands.
+    // Missing data falls back to the anonymous SSR `boards` list.
+    initialData:
+      sessionVersion === INITIAL_SESSION_VERSION
+        ? { permissions: boardPermissions, boards }
+        : undefined,
     staleTime: 30 * 1000,
     enabled: !!tabs.feedback,
   })
+  const livePermissions = liveCapabilities?.permissions
+  const liveBoards = liveCapabilities?.boards ?? boards
 
   const { c: resumeConversationId } = Route.useSearch()
+  const { hasTickets } = useTicketStageBadge(!!tabs.tickets)
+  const threadTab: WidgetTab | null = tabs.messages ? 'messages' : tabs.tickets ? 'tickets' : null
   const initialTab = resolveInitialTab(tabs)
-  // A `?c=` deep link opens straight to Messenger (when Messenger is enabled); the widget
-  // then loads the visitor's active conversation from their session.
+  // A `?c=` deep link opens the thread. Messages is preferred; Tickets still
+  // owns the thread when Messages is off so email-first links keep working.
   const [view, setView] = useState<WidgetView>(
-    resumeConversationId && tabs.messages ? 'messenger' : resolveInitialView(tabs)
+    resumeConversationId && threadTab ? 'messenger' : resolveInitialView(tabs)
   )
   const [activeTab, setActiveTab] = useState<WidgetTab>(
-    resumeConversationId && tabs.messages ? 'messages' : initialTab
+    resumeConversationId && threadTab ? threadTab : initialTab
   )
   // Which thread the messenger view opens: an id, 'new', or null (active/default).
   // Seeded from the ?c= deep link so it opens that exact thread.
@@ -465,15 +497,27 @@ function WidgetPage() {
   // returns here. Cleared by any tab-bar click — tabs never show a back arrow.
   const [backTarget, setBackTarget] = useState<{ tab: WidgetTab; view: WidgetView } | null>(null)
 
+  // How the current view was reached. Tab-bar landings keep focus on the tab
+  // button; every other navigation ('move': push, back, cross-jump) unmounts
+  // the element that had focus, so the incoming view takes it instead.
+  const lastNavRef = useRef<'tab' | 'move'>('tab')
+  const focusIncoming = lastNavRef.current === 'move'
+
   const [successPost, setSuccessPost] = useState<SuccessPost | null>(null)
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null)
   const [selectedChangelogId, setSelectedChangelogId] = useState<string | null>(null)
   const [selectedHelpSlug, setSelectedHelpSlug] = useState<string | null>(null)
+  // Help search lives here (not in the view) so it survives the article
+  // round-trip: back from a result lands on the same results, not the
+  // collection list.
+  const [helpSearch, setHelpSearch] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<{
     id: string
     name: string
     icon: string | null
   } | null>(null)
+  const [composeRequest, setComposeRequest] = useState<WidgetComposeRequest | null>(null)
+  const composeNonceRef = useRef(0)
   const [createdPosts, setCreatedPosts] = useState<typeof posts>([])
 
   const allPosts = useMemo(() => {
@@ -481,11 +525,44 @@ function WidgetPage() {
     return [...createdPosts, ...posts.filter((p) => !createdIds.has(p.id))]
   }, [posts, createdPosts])
 
-  const openMessenger = useCallback((target?: ConversationId | 'new') => {
-    setConversationTarget(target ?? null)
-    setActiveTab('messages')
-    setView('messenger')
-  }, [])
+  // Set when the messenger was opened from an article's "Still stuck?" ramp:
+  // back then resumes the read instead of landing on the Messages list. Kept
+  // apart from `backTarget`, which still holds where the *article* came from
+  // (e.g. a Home card), so that chevron survives the detour.
+  const messengerReturnRef = useRef<'help-detail' | null>(null)
+  const openMessenger = useCallback(
+    (
+      target?: ConversationId | 'new',
+      from: WidgetTab = 'messages',
+      opts?: { returnTo?: 'help-detail' }
+    ) => {
+      lastNavRef.current = 'move'
+      messengerReturnRef.current = opts?.returnTo ?? null
+      setConversationTarget(target ?? null)
+      setActiveTab(from === 'tickets' ? 'tickets' : 'messages')
+      setView('messenger')
+    },
+    []
+  )
+
+  // Once this visitor's tickets are KNOWN to be none (or to have vanished),
+  // leave a tab that is no longer in the bar — the empty Tickets view, or Home
+  // when hiding Tickets drops the workspace to a single surface. Never acts on
+  // the pending state: while identity or the list is still loading, the bar
+  // withholds only the Tickets slot (see visibleTabsForVisitor), and moving off
+  // the `resolveInitialTab` landing on that provisional shape would strand a
+  // ticket-holding visitor on the fallback tab after the answer arrives.
+  useEffect(() => {
+    if (hasTickets === null) return
+    if (view === 'messenger') return
+    const shown = visibleTabsForVisitor(tabs, hasTickets)
+    if (shown.length === 0) return
+    if (shown.includes(activeTab)) return
+    const next = shown[0]
+    lastNavRef.current = 'tab'
+    setActiveTab(next)
+    setView(next === 'home' ? 'overview' : next)
+  }, [tabs, hasTickets, activeTab, view])
 
   // Long-form content reads better wide: ask the host SDK to grow the panel
   // while an article or changelog entry is open, and shrink it back after.
@@ -507,35 +584,84 @@ function WidgetPage() {
         setHostIsMobile(!!msg.data)
         return
       }
-      if (msg.type !== 'quackback:open' || !msg.data) return
+      if (msg.type !== 'quackback:open') return
 
-      const opts = msg.data as { view?: string }
+      const opts = (msg.data ?? {}) as {
+        view?: string
+        title?: string
+        body?: string
+        board?: string
+        query?: string
+        entryId?: string
+        postId?: string
+        articleId?: string
+      }
+      const command = resolveOpenCommand(opts, tabs)
+      if (!command) return
+
       // SDK-driven opens are tab-level landings: no back-chevron origin.
       setBackTarget(null)
-      if (opts.view === 'changelog' && tabs.changelog) {
-        setActiveTab('changelog')
-        setView('changelog')
-      } else if (opts.view === 'help' && tabs.help) {
-        setActiveTab('help')
-        setView('help')
-      } else if (
-        (opts.view === 'messages' || opts.view === 'chat' || opts.view === 'live-chat') &&
-        tabs.messages
-      ) {
-        openMessenger()
-      } else if (opts.view === 'tickets') {
-        // The requester's own-tickets list lives on the Tickets tab; on
-        // workspaces without it, ticket threads are listed in Messages.
-        if (tabs.tickets) {
+      lastNavRef.current = 'tab'
+      switch (command.type) {
+        case 'new-post':
+          composeNonceRef.current += 1
+          setComposeRequest({
+            nonce: composeNonceRef.current,
+            title: command.title,
+            body: command.body,
+            boardSlug: command.boardSlug,
+          })
+          setSelectedPostId(null)
+          setActiveTab('feedback')
+          setView('feedback')
+          break
+        case 'post':
+          setActiveTab('feedback')
+          setSelectedPostId(command.postId)
+          setView('post-detail')
+          break
+        case 'article':
+          // Same as postId: store the ref and let the detail view fetch it
+          // with Bearer + sessionVersion. TypeIDs (`article_` / `kb_article_`)
+          // and slugs both resolve server-side; no client hop.
+          setSelectedCategory(null)
+          setHelpSearch('')
+          setSelectedHelpSlug(command.articleId)
+          setActiveTab('help')
+          setView('help-detail')
+          break
+        case 'changelog':
+          setActiveTab('changelog')
+          if (command.entryId) {
+            setSelectedChangelogId(command.entryId)
+            setView('changelog-detail')
+          } else {
+            setSelectedChangelogId(null)
+            setView('changelog')
+          }
+          break
+        case 'help':
+          setSelectedHelpSlug(null)
+          setSelectedCategory(null)
+          setHelpSearch(command.query ?? '')
+          setActiveTab('help')
+          setView('help')
+          break
+        case 'messenger':
+          openMessenger()
+          break
+        case 'tickets':
           setActiveTab('tickets')
           setView('tickets')
-        } else if (tabs.messages) {
+          break
+        case 'messages':
           setActiveTab('messages')
           setView('messages')
-        }
-      } else if ((opts.view === 'home' || opts.view === 'overview') && homeEnabled(tabs)) {
-        setActiveTab('home')
-        setView('overview')
+          break
+        case 'home':
+          setActiveTab('home')
+          setView('overview')
+          break
       }
     }
     window.addEventListener('message', handleMessage)
@@ -543,6 +669,7 @@ function WidgetPage() {
   }, [tabs, openMessenger])
 
   const handlePostCreated = useCallback((post: SuccessPost) => {
+    lastNavRef.current = 'move'
     setCreatedPosts((prev) => [
       {
         id: post.id as (typeof prev)[number]['id'],
@@ -559,11 +686,13 @@ function WidgetPage() {
   }, [])
 
   const handlePostSelect = useCallback((postId: string) => {
+    lastNavRef.current = 'move'
     setSelectedPostId(postId)
     setView('post-detail')
   }, [])
 
   const handleBack = useCallback(() => {
+    lastNavRef.current = 'move'
     if (view === 'changelog-detail') {
       setSelectedChangelogId(null)
       setView('changelog')
@@ -584,8 +713,16 @@ function WidgetPage() {
       return
     }
     if (view === 'messenger') {
-      // Messenger opens from the Messages tab; back returns to the conversation list.
-      setView('messages')
+      // Opened from an article's "Still stuck?" ramp: back resumes the read.
+      // `backTarget` is left alone — it still points at the article's origin.
+      if (messengerReturnRef.current === 'help-detail' && selectedHelpSlug) {
+        messengerReturnRef.current = null
+        setActiveTab('help')
+        setView('help-detail')
+        return
+      }
+      // Otherwise return to the list we opened from (Messages or Tickets).
+      setView(activeTab === 'tickets' ? 'tickets' : 'messages')
       return
     }
     // Root views only show a back arrow after a cross-navigation (e.g. a Home
@@ -606,7 +743,7 @@ function WidgetPage() {
     }
     setSelectedPostId(null)
     setView('feedback')
-  }, [view, selectedCategory, backTarget])
+  }, [view, selectedCategory, selectedHelpSlug, backTarget, activeTab])
 
   const navigateToTab = useCallback((tab: WidgetTab) => {
     setActiveTab(tab)
@@ -624,9 +761,11 @@ function WidgetPage() {
       setSelectedChangelogId(null)
       setView('changelog')
     } else {
-      // 'help' — the knowledge-base articles surface
+      // 'help' — the knowledge-base articles surface. A tab landing is a
+      // fresh start; only back navigations keep the query.
       setSelectedHelpSlug(null)
       setSelectedCategory(null)
+      setHelpSearch('')
       setView('help')
     }
   }, [])
@@ -635,6 +774,7 @@ function WidgetPage() {
   // arrow — any pending cross-navigation origin is dropped.
   const handleTabChange = useCallback(
     (tab: WidgetTab) => {
+      lastNavRef.current = 'tab'
       setBackTarget(null)
       navigateToTab(tab)
     },
@@ -645,6 +785,7 @@ function WidgetPage() {
   // the origin so the destination shows a back chevron returning here.
   const crossNavigate = useCallback(
     (tab: WidgetTab) => {
+      lastNavRef.current = 'move'
       setBackTarget({ tab: activeTab, view })
       navigateToTab(tab)
     },
@@ -652,17 +793,20 @@ function WidgetPage() {
   )
 
   const handleChangelogEntrySelect = useCallback((entryId: string) => {
+    lastNavRef.current = 'move'
     setSelectedChangelogId(entryId)
     setView('changelog-detail')
   }, [])
 
   const handleHelpArticleSelect = useCallback((articleSlug: string) => {
+    lastNavRef.current = 'move'
     setSelectedHelpSlug(articleSlug)
     setView('help-detail')
   }, [])
 
   const handleHelpCategorySelect = useCallback(
     (categoryId: string, categoryName: string, categoryIcon: string | null) => {
+      lastNavRef.current = 'move'
       setSelectedCategory({ id: categoryId, name: categoryName, icon: categoryIcon })
       setView('help-category')
     },
@@ -670,9 +814,26 @@ function WidgetPage() {
   )
 
   const handleHelpCategoryArticleSelect = useCallback((articleSlug: string) => {
+    lastNavRef.current = 'move'
     setSelectedHelpSlug(articleSlug)
     setView('help-detail')
   }, [])
+
+  const handleHelpCategoryUnavailable = useCallback(() => {
+    lastNavRef.current = 'move'
+    setSelectedCategory(null)
+    setView('help')
+  }, [])
+
+  // The feedback view stays mounted (form state survives a detail round-trip),
+  // so it can't take focus via ViewTransition's mount hook; do it when it
+  // becomes visible again after a back/cross navigation.
+  const feedbackViewRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (view === 'feedback' && lastNavRef.current === 'move') {
+      feedbackViewRef.current?.focus({ preventScroll: true })
+    }
+  }, [view])
 
   // Detail views always get a back arrow; root views only when a
   // cross-navigation origin is pending (tab-bar landings never show one).
@@ -689,6 +850,18 @@ function WidgetPage() {
   // the assistant identity when enabled — always available, no presence — or
   // the live presence badge for assistant-less workspaces.
   const presence = useConversationPresence(messengerEnabled && !assistant)
+  // When office hours are configured, tell the visitor up front when the team
+  // is back — the thread body only says so once they've typed.
+  const presenceBackAt = useMemo(() => {
+    if (!presence.nextOpenAt) return null
+    const at = new Date(presence.nextOpenAt)
+    if (Number.isNaN(at.getTime())) return null
+    return new Intl.DateTimeFormat(intl.locale, {
+      weekday: 'long',
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(at)
+  }, [presence.nextOpenAt, intl.locale])
   const messengerHeader =
     view === 'messenger' ? (
       assistant ? (
@@ -707,9 +880,10 @@ function WidgetPage() {
           </div>
         </div>
       ) : (
-        <div className="ps-1">
+        <div className="min-w-0 ps-1">
           <ConversationPresenceBadge
             available={conversationAvailable(presence.agentsOnline, presence.withinOfficeHours)}
+            backAt={presenceBackAt}
           />
         </div>
       )
@@ -724,7 +898,7 @@ function WidgetPage() {
       enabledTabs={tabs}
       portalAccess={portalAccess}
       portalOrigin={portalOrigin}
-      team={team}
+      showPoweredBy={showPoweredBy}
       logoUrl={(home?.showLogo ?? true) ? logoUrl : null}
       headerContent={messengerHeader}
       // The hero backdrop belongs to Home only; detail views keep a plain panel.
@@ -740,11 +914,11 @@ function WidgetPage() {
       }
     >
       {view === 'overview' && (
-        <ViewTransition id="overview" kind="root">
+        // Overview is statically imported (SSR-complete Home) — never suspends.
+        <ViewTransition id="overview" kind="root" focusOnMount={focusIncoming} fallback={null}>
           <WidgetOverview
             tabs={tabs}
             home={home}
-            translations={translations ?? undefined}
             assistant={assistant}
             team={team}
             topArticles={topArticles}
@@ -766,7 +940,7 @@ function WidgetPage() {
             }}
             onOpenTicket={(conversationId) => {
               setBackTarget({ tab: 'home', view: 'overview' })
-              openMessenger(conversationId)
+              openMessenger(conversationId, tabs.tickets ? 'tickets' : 'messages')
             }}
             onSeeChangelog={() => crossNavigate('changelog')}
             onOpenChangelogEntry={(id) => {
@@ -779,25 +953,43 @@ function WidgetPage() {
       )}
 
       {view === 'changelog' && (
-        <ViewTransition id="changelog" kind="root">
+        <ViewTransition
+          id="changelog"
+          kind="root"
+          focusOnMount={focusIncoming}
+          fallback={<WidgetChangelogListSkeleton />}
+        >
           <WidgetChangelog teamName={teamName} onEntrySelect={handleChangelogEntrySelect} />
         </ViewTransition>
       )}
 
       {view === 'messenger' && (
-        <ViewTransition id={`messenger-${conversationTarget ?? 'active'}`} kind="push">
+        <ViewTransition
+          id={`messenger-${conversationTarget ?? 'active'}`}
+          kind="push"
+          focusOnMount={focusIncoming}
+          fallback={<WidgetMessengerViewSkeleton isNew={conversationTarget === 'new'} />}
+        >
           <WidgetMessenger
             key={conversationTarget ?? 'active'}
             helpEnabled={tabs.help}
             onArticleSelect={handleHelpArticleSelect}
             conversationTarget={conversationTarget === null ? undefined : conversationTarget}
             linkPreviews={linkPreviews}
+            // A fresh thread exists to be typed into; a resumed one to be read.
+            // Mobile hosts skip it — the software keyboard would cover the thread.
+            autofocusComposer={conversationTarget === 'new' && !hostIsMobile}
           />
         </ViewTransition>
       )}
 
       {view === 'messages' && (
-        <ViewTransition id="messages" kind="root">
+        <ViewTransition
+          id="messages"
+          kind="root"
+          focusOnMount={focusIncoming}
+          fallback={<WidgetConversationListSkeleton />}
+        >
           <WidgetMessages
             teamName={teamName}
             assistant={assistant}
@@ -808,49 +1000,96 @@ function WidgetPage() {
       )}
 
       {view === 'tickets' && (
-        <ViewTransition id="tickets" kind="root">
-          <WidgetTickets onOpenTicket={openMessenger} />
+        <ViewTransition
+          id="tickets"
+          kind="root"
+          focusOnMount={focusIncoming}
+          fallback={<WidgetTicketListSkeleton />}
+        >
+          <WidgetTickets onOpenTicket={(id) => openMessenger(id, 'tickets')} />
         </ViewTransition>
       )}
 
       {view === 'changelog-detail' && selectedChangelogId && (
-        <ViewTransition id={`changelog-${selectedChangelogId}`} kind="push">
+        <ViewTransition
+          id={`changelog-${selectedChangelogId}`}
+          kind="push"
+          focusOnMount={focusIncoming}
+          fallback={<WidgetArticleSkeleton />}
+        >
           <WidgetChangelogDetail entryId={selectedChangelogId} />
         </ViewTransition>
       )}
 
       {view === 'help' && (
-        <ViewTransition id="help" kind="root">
+        <ViewTransition
+          id="help"
+          kind="root"
+          focusOnMount={focusIncoming}
+          fallback={<WidgetHelpViewSkeleton />}
+        >
           <WidgetHelp
             onArticleSelect={handleHelpArticleSelect}
             onCategorySelect={handleHelpCategorySelect}
+            search={helpSearch}
+            onSearchChange={setHelpSearch}
           />
         </ViewTransition>
       )}
 
       {view === 'help-category' && selectedCategory && (
-        <ViewTransition id={`help-category-${selectedCategory.id}`} kind="push">
+        <ViewTransition
+          id={`help-category-${selectedCategory.id}`}
+          kind="push"
+          focusOnMount={focusIncoming}
+          fallback={
+            <WidgetHelpCategoryViewSkeleton
+              categoryName={selectedCategory.name}
+              hasIcon={!!selectedCategory.icon}
+            />
+          }
+        >
           <WidgetHelpCategory
             categoryId={selectedCategory.id}
             categoryName={selectedCategory.name}
             categoryIcon={selectedCategory.icon}
             onArticleSelect={handleHelpCategoryArticleSelect}
+            onCategoryUnavailable={handleHelpCategoryUnavailable}
           />
         </ViewTransition>
       )}
 
       {view === 'help-detail' && selectedHelpSlug && (
-        <ViewTransition id={`help-detail-${selectedHelpSlug}`} kind="push">
-          <WidgetHelpDetail articleSlug={selectedHelpSlug} />
+        <ViewTransition
+          id={`help-detail-${selectedHelpSlug}`}
+          kind="push"
+          focusOnMount={focusIncoming}
+          fallback={<WidgetArticleSkeleton />}
+        >
+          <WidgetHelpDetail
+            articleRef={selectedHelpSlug}
+            onCategorySelect={(id, name) => handleHelpCategorySelect(id, name, null)}
+            onAskQuestion={
+              messengerEnabled
+                ? () => {
+                    // Back from the new thread returns to this article, not to
+                    // the Messages list — the visitor was mid-read.
+                    openMessenger('new', 'messages', { returnTo: 'help-detail' })
+                  }
+                : undefined
+            }
+          />
         </ViewTransition>
       )}
 
       {/* Keep home mounted (hidden) when viewing post detail so form state is preserved */}
       <div
+        ref={feedbackViewRef}
+        tabIndex={-1}
         className={
           view === 'feedback' || view === 'post-detail'
             ? view === 'feedback'
-              ? 'flex flex-col h-full'
+              ? 'flex flex-col h-full outline-none'
               : 'hidden'
             : 'hidden'
         }
@@ -867,9 +1106,12 @@ function WidgetPage() {
             initialPosts={allPosts}
             initialHasMore={postsHasMore}
             statuses={statuses}
-            boards={boards}
+            boards={liveBoards}
             boardPermissions={livePermissions}
             defaultBoard={defaultBoard}
+            initialBoardSlug={initialBoardSlug}
+            confirmedBoardSlugs={liveCapabilities?.boards.map((b) => b.slug) ?? null}
+            composeRequest={composeRequest}
             onPostSelect={handlePostSelect}
             onPostCreated={handlePostCreated}
           />
@@ -877,13 +1119,24 @@ function WidgetPage() {
       </div>
 
       {view === 'post-detail' && selectedPostId && (
-        <ViewTransition id={`post-${selectedPostId}`} kind="push">
+        <ViewTransition
+          id={`post-${selectedPostId}`}
+          kind="push"
+          focusOnMount={focusIncoming}
+          fallback={<WidgetPostDetailSkeleton />}
+        >
           <WidgetPostDetail postId={selectedPostId} statuses={statuses} />
         </ViewTransition>
       )}
 
       {view === 'success' && successPost && (
-        <ViewTransition id={`success-${successPost.id}`} kind="push">
+        // SuccessView is defined in this module — never suspends.
+        <ViewTransition
+          id={`success-${successPost.id}`}
+          kind="push"
+          focusOnMount={focusIncoming}
+          fallback={null}
+        >
           <SuccessView
             post={successPost}
             status={
@@ -923,6 +1176,7 @@ function SuccessView({
   onOpenPost: () => void
   onBack: () => void
 }) {
+  const intl = useIntl()
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2.5 px-4 pt-5 pb-3">
@@ -930,25 +1184,46 @@ function SuccessView({
           <CheckCircleIcon className="w-4.5 h-4.5 text-primary" />
         </div>
         <div>
-          <p className="text-sm font-semibold text-foreground">Thanks for your feedback!</p>
-          <p className="text-[11px] text-muted-foreground">Your idea has been submitted.</p>
+          <p className="text-sm font-semibold text-foreground">
+            <FormattedMessage
+              id="widget.success.title"
+              defaultMessage="Thanks for your feedback!"
+            />
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            <FormattedMessage
+              id="widget.success.subtitle"
+              defaultMessage="Your idea has been submitted."
+            />
+          </p>
         </div>
       </div>
 
       <div className="px-3">
-        <div
-          className="flex items-center gap-2 rounded-lg bg-muted/20 border border-border/50 px-2 py-2 cursor-pointer hover:bg-muted/30 transition-colors"
-          onClick={onOpenPost}
-        >
-          <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+        {/* Vote and open are siblings (a button-role ancestor would hide the
+            vote button from assistive tech); the open button's ::after is
+            stretched over the card so the whole card stays tappable. */}
+        <div className="relative flex items-center gap-2 rounded-lg bg-muted/20 border border-border/50 px-2 py-2 hover:bg-muted/30 transition-colors">
+          <div className="relative z-10 shrink-0">
             <WidgetVoteButton
               postId={post.id as PostId}
               voteCount={post.voteCount}
               onBeforeVote={canVote ? ensureSession : undefined}
-              noAccessReason={canVote ? undefined : "You don't have access to vote on this board"}
+              noAccessReason={
+                canVote
+                  ? undefined
+                  : intl.formatMessage({
+                      id: 'widget.vote.noAccess',
+                      defaultMessage: "You don't have access to vote on this board",
+                    })
+              }
             />
           </div>
-          <div className="flex-1 min-w-0">
+          <button
+            type="button"
+            onClick={onOpenPost}
+            className="flex-1 min-w-0 text-start cursor-pointer outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring/50"
+          >
             <h3 className="text-sm font-medium text-foreground line-clamp-2">{post.title}</h3>
             <div className="flex items-center gap-1.5 mt-0.5">
               {status && (
@@ -962,7 +1237,7 @@ function SuccessView({
               )}
               <span className="text-xs text-muted-foreground/60">{post.board.name}</span>
             </div>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -972,8 +1247,8 @@ function SuccessView({
           onClick={onBack}
           className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium text-foreground bg-muted/30 hover:bg-muted/50 rounded-lg border border-border/50 transition-colors"
         >
-          <ArrowLeftIcon className="w-3.5 h-3.5" />
-          Back to ideas
+          <ArrowLeftIcon className="w-3.5 h-3.5 rtl:rotate-180" />
+          <FormattedMessage id="widget.success.backToIdeas" defaultMessage="Back to ideas" />
         </button>
       </div>
     </div>

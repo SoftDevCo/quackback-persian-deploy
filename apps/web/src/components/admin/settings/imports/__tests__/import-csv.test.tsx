@@ -15,6 +15,10 @@ vi.mock('@/lib/client/queries/admin', () => ({
       queryKey: ['admin', 'settings', 'boards'],
       queryFn: async () => [{ id: 'board_1', slug: 'feedback', name: 'Feedback' }],
     }),
+    boardsWithCounts: () => ({
+      queryKey: ['admin', 'boards', 'with-counts'],
+      queryFn: async () => [],
+    }),
   },
 }))
 
@@ -88,11 +92,13 @@ function jsonResponse(body: unknown, status = 200) {
 
 function renderCsv() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  const invalidate = vi.spyOn(client, 'invalidateQueries')
+  render(
     <QueryClientProvider client={client}>
       <ImportCsv />
     </QueryClientProvider>
   )
+  return { invalidate }
 }
 
 function chooseCsvFile() {
@@ -109,6 +115,12 @@ afterEach(() => {
 })
 
 describe('<ImportCsv>', () => {
+  it('explains how author_email and author_name are applied', () => {
+    renderCsv()
+    expect(screen.getByText(/Every row needs author_email or author_name/)).toBeTruthy()
+    expect(screen.getByText(/name-only contact/)).toBeTruthy()
+  })
+
   it('walks upload -> dry-run review -> commit -> done', async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
@@ -127,7 +139,7 @@ describe('<ImportCsv>', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    renderCsv()
+    const { invalidate } = renderCsv()
     chooseCsvFile()
 
     // Dry-run review: counts, auto-creation note, sample row.
@@ -148,6 +160,9 @@ describe('<ImportCsv>', () => {
     // Polls the run and lands on the completion summary.
     expect(await screen.findByText('Import complete')).toBeTruthy()
     expect(screen.getByText(/2 created/)).toBeTruthy()
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['import-runs'] })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['admin', 'settings', 'boards'] })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['admin', 'boards', 'with-counts'] })
   })
 
   it('stays on the upload step and toasts when the dry run is rejected', async () => {

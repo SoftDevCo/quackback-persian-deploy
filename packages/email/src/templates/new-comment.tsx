@@ -27,15 +27,15 @@ export function NewCommentEmail({
 }: NewCommentEmailProps) {
   return (
     <EmailLayout
-      preview={`نظر جدید درباره‌ی «${postTitle}»`}
+      preview={`New comment on "${postTitle}"`}
       logoUrl={logoUrl}
       logoAlt={organizationName}
     >
       {/* Content */}
-      <Heading style={typography.h1}>نظر جدید درباره‌ی بازخورد شما</Heading>
+      <Heading style={typography.h1}>New comment on your feedback</Heading>
       <Text style={typography.text}>
         {commenterName}
-        {isTeamMember ? ' (عضو تیم)' : ''} درباره‌ی بازخورد شما در {organizationName} نظر داده است.
+        {isTeamMember ? ' (Team)' : ''} commented on your feedback in {organizationName}.
       </Text>
 
       {/* Post Title */}
@@ -55,7 +55,7 @@ export function NewCommentEmail({
             color: colors.textMuted,
           }}
         >
-          بازخورد
+          Feedback
         </Text>
         <Text style={{ ...typography.text, marginTop: '0', marginBottom: '0', fontWeight: '600' }}>
           {postTitle}
@@ -82,13 +82,13 @@ export function NewCommentEmail({
       {/* CTA Button */}
       <Section style={{ textAlign: 'center', marginTop: '32px', marginBottom: '32px' }}>
         <Button style={button.primary} href={postUrl}>
-          مشاهده‌ی نظر
+          View Comment
         </Button>
       </Section>
 
       {/* Footer */}
       <NotificationFooter
-        reason="این ایمیل به این دلیل برای شما ارسال شده که این بازخورد را ثبت کرده‌اید یا دریافت اعلان‌های آن را فعال کرده‌اید."
+        reason="You received this email because you submitted or subscribed to this feedback."
         unsubscribeUrl={unsubscribeUrl}
         preferencesUrl={preferencesUrl}
       />

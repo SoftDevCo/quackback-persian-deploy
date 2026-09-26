@@ -3,6 +3,7 @@ import {
   BILLING_STATUSES,
   ENTITLEMENT_KEYS,
   PLAN_IDS,
+  canonicalPlanId,
   type BillingStatus,
   type PlanId,
 } from './cloud.types'
@@ -81,14 +82,13 @@ function parseEntitlements(
 ): Partial<Record<(typeof ENTITLEMENT_KEYS)[number], boolean>> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const entitlements = value as Record<string, unknown>
-  if (
-    Object.entries(entitlements).some(
-      ([key, enabled]) => !ENTITLEMENT_KEYS_SET.has(key) || typeof enabled !== 'boolean'
-    )
-  ) {
-    return null
+  const parsed: Partial<Record<(typeof ENTITLEMENT_KEYS)[number], boolean>> = {}
+  for (const [key, enabled] of Object.entries(entitlements)) {
+    if (!ENTITLEMENT_KEYS_SET.has(key)) continue
+    if (typeof enabled !== 'boolean') return null
+    parsed[key as (typeof ENTITLEMENT_KEYS)[number]] = enabled
   }
-  return entitlements as Partial<Record<(typeof ENTITLEMENT_KEYS)[number], boolean>>
+  return parsed
 }
 
 function isNullableIsoDate(value: unknown): value is string | null {
@@ -113,9 +113,9 @@ export function parseBillingProjection(value: unknown): BillingProjection | null
     return null
   }
   if (!Number.isSafeInteger(projection.version) || Number(projection.version) < 1) return null
-  if (typeof projection.effectivePlan !== 'string' || !PLAN_IDS_SET.has(projection.effectivePlan)) {
-    return null
-  }
+  if (typeof projection.effectivePlan !== 'string') return null
+  const effectivePlan = canonicalPlanId(projection.effectivePlan)
+  if (!PLAN_IDS_SET.has(effectivePlan)) return null
   if (
     !isNullableIsoDate(projection.trialStartedAt) ||
     !isNullableIsoDate(projection.trialExpiresAt) ||
@@ -142,7 +142,7 @@ export function parseBillingProjection(value: unknown): BillingProjection | null
   ) {
     return null
   }
-  return { ...projection, entitlements, freeLimits, planLimits } as BillingProjection
+  return { ...projection, effectivePlan, entitlements, freeLimits, planLimits } as BillingProjection
 }
 
 /** Preserve unlimited or higher operator limits while raising lower plan limits. */

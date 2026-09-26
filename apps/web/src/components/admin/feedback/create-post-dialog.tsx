@@ -7,7 +7,7 @@ import { createPostSchema } from '@/lib/shared/schemas/posts'
 import { useCreatePost } from '@/lib/client/mutations/posts'
 import type { CreatePostInput } from '@/lib/shared/types'
 import { useSimilarPosts } from '@/lib/client/hooks/use-similar-posts'
-import { usePostImageUpload } from '@/lib/client/hooks/use-image-upload'
+import { usePostMediaUpload } from '@/lib/client/hooks/use-image-upload'
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { FolderIcon, TagIcon, UserIcon } from '@heroicons/react/24/outline'
@@ -61,11 +61,12 @@ export function CreatePostDialog({
 }: CreatePostDialogProps) {
   const defaultStatusId = statuses.find((s) => s.isDefault)?.id || statuses[0]?.id || ''
   const [internalOpen, setInternalOpen] = useState(false)
+  const isControlled = controlledOpen !== undefined
   const open = controlledOpen ?? internalOpen
   const setOpen = controlledOnOpenChange ?? setInternalOpen
   const [contentJson, setContentJson] = useState<JSONContent | null>(null)
 
-  const { upload: uploadImage } = usePostImageUpload()
+  const { upload: uploadMedia } = usePostMediaUpload()
   const [authorPrincipalId, setAuthorPrincipalId] = useState(currentUser.principalId)
   const createPostMutation = useCreatePost()
   const createUserMutation = useCreatePortalUser()
@@ -102,7 +103,7 @@ export function CreatePostDialog({
   const handleContentChange = useCallback(
     (json: JSONContent, _html: string, markdown: string) => {
       setContentJson(json)
-      form.setValue('content', markdown, { shouldValidate: true })
+      form.setValue('content', markdown, { shouldValidate: false, shouldDirty: true })
     },
     [form]
   )
@@ -156,13 +157,15 @@ export function CreatePostDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        {trigger ?? (
-          <Button variant="ghost" size="icon" title="Create new post">
-            <PencilSquareIcon className="h-4 w-4" />
-          </Button>
-        )}
-      </DialogTrigger>
+      {(!isControlled || trigger) && (
+        <DialogTrigger asChild>
+          {trigger ?? (
+            <Button variant="ghost" size="icon" title="Create new post">
+              <PencilSquareIcon className="h-4 w-4" />
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent
         className="w-[95vw] max-w-5xl p-0 gap-0 overflow-hidden"
         onKeyDown={handleKeyDown}
@@ -216,13 +219,15 @@ export function CreatePostDialog({
                                 blockquotes: true,
                                 dividers: true,
                                 images: true,
+                                videos: true,
                                 tables: true,
                                 embeds: true,
                                 quackbackEmbeds: true,
                                 bubbleMenu: true,
                                 slashMenu: true,
                               }}
-                              onImageUpload={uploadImage}
+                              onImageUpload={uploadMedia}
+                              onVideoUpload={uploadMedia}
                             />
                           </Suspense>
                         </FormControl>

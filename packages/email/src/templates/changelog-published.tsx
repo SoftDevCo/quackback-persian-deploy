@@ -32,13 +32,13 @@ export function ChangelogPublishedEmail({
 }: ChangelogPublishedEmailProps) {
   return (
     <EmailLayout
-      preview={`به‌روزرسانی جدید از ${organizationName}: ${changelogTitle}`}
+      preview={`New update from ${organizationName}: ${changelogTitle}`}
       logoUrl={logoUrl}
       logoAlt={organizationName}
     >
       {/* Content */}
-      <Heading style={typography.h1}>به‌روزرسانی جدید منتشر شد</Heading>
-      <Text style={typography.text}>{organizationName} به‌تازگی یک به‌روزرسانی محصول منتشر کرده است.</Text>
+      <Heading style={typography.h1}>New update published</Heading>
+      <Text style={typography.text}>{organizationName} just published a product update.</Text>
 
       {/* Changelog Title */}
       <Section
@@ -78,13 +78,13 @@ export function ChangelogPublishedEmail({
       {/* CTA Button */}
       <Section style={{ textAlign: 'center', marginTop: '32px', marginBottom: '32px' }}>
         <Button style={button.primary} href={changelogUrl}>
-          مشاهده‌ی به‌روزرسانی
+          View Update
         </Button>
       </Section>
 
       {/* Footer */}
       <NotificationFooter
-        reason="این ایمیل به این دلیل برای شما ارسال شده که دریافت به‌روزرسانی‌های تغییرات را فعال کرده‌اید."
+        reason="You received this email because you're subscribed to changelog updates."
         unsubscribeUrl={unsubscribeUrl}
         preferencesUrl={preferencesUrl}
       />

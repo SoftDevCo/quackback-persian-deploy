@@ -103,6 +103,8 @@ export function ImportCsv() {
     if (step === 'committing' && run && !IN_FLIGHT_RUN_STATUSES.has(run.status)) {
       setStep(run.status === 'completed' ? 'done' : 'failed')
       void queryClient.invalidateQueries({ queryKey: ['import-runs'] })
+      void queryClient.invalidateQueries({ queryKey: adminQueries.boardsForSettings().queryKey })
+      void queryClient.invalidateQueries({ queryKey: adminQueries.boardsWithCounts().queryKey })
     }
   }, [step, run, queryClient])
 
@@ -200,7 +202,8 @@ export function ImportCsv() {
           </span>
           <span className="text-xs text-muted-foreground">
             Must use the template columns — title and content are required. Up to 10MB / 10,000
-            rows.
+            rows. Every row needs author_email or author_name: email matches or creates a person;
+            name without an email creates a name-only contact.
           </span>
           <input
             ref={fileInputRef}

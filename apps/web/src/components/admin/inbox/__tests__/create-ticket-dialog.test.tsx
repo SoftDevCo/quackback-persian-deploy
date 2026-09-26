@@ -25,8 +25,9 @@ const mocks = vi.hoisted(() => ({
   linkTicketToConversationFn: vi.fn(),
   suggestTicketFieldValuesFn: vi.fn(),
   toastInfo: vi.fn(),
+  uploading: false,
   routeContext: {
-    settings: { featureFlags: { inboxAi: true } },
+    settings: { featureFlags: {} },
   } as Record<string, unknown>,
 }))
 
@@ -57,7 +58,17 @@ vi.mock('@/components/ui/rich-text-editor', () => ({ RichTextEditor: () => null 
 vi.mock('@/lib/client/hooks/use-image-upload', () => ({
   useImageUpload: () => ({ upload: vi.fn() }),
 }))
+vi.mock('@/lib/client/hooks/use-conversation-composer-attachments', () => ({
+  useConversationComposerAttachments: () => ({
+    pending: [],
+    addFiles: vi.fn(),
+    remove: vi.fn(),
+    clear: vi.fn(),
+    uploading: mocks.uploading,
+  }),
+}))
 vi.mock('@/components/shared/portal-user-picker', () => ({ PortalUserPicker: () => null }))
+vi.mock('@/components/ui/select', async () => import('@/test/radix-select'))
 
 import { CreateTicketDialog } from '../create-ticket-dialog'
 
@@ -144,14 +155,10 @@ function renderDialog(props: Partial<Parameters<typeof CreateTicketDialog>[0]> =
   })
 }
 
-/** Open a Radix Select and pick one of its options by visible text. happy-dom
- *  doesn't open the popover on pointerDown, but ArrowDown on the focused
- *  trigger works (the repo's DropdownMenu tests use pointerDown instead). */
+/** Open a Select and pick one of its options by visible text. */
 async function pickSelectOption(trigger: HTMLElement, optionText: string) {
-  trigger.focus()
-  fireEvent.keyDown(trigger, { key: 'ArrowDown' })
   const option = await screen.findByRole('option', { name: new RegExp(optionText) })
-  fireEvent.click(option)
+  fireEvent.change(trigger, { target: { value: (option as HTMLOptionElement).value } })
 }
 
 beforeEach(() => {
@@ -160,9 +167,10 @@ beforeEach(() => {
   mocks.linkTicketToConversationFn.mockReset()
   mocks.suggestTicketFieldValuesFn.mockReset()
   mocks.toastInfo.mockReset()
-  mocks.routeContext = { settings: { featureFlags: { inboxAi: true } } }
+  mocks.routeContext = { settings: { featureFlags: {} } }
   mocks.listTicketTypesFn.mockReset()
   mocks.listTicketTypesFn.mockResolvedValue([bugType, refundType, taskType, outageType])
+  mocks.uploading = false
 })
 
 afterEach(cleanup)
@@ -282,20 +290,13 @@ describe('CreateTicketDialog — Phase 5 copilot auto-fill', () => {
     return renderDialog({ conversationId: 'conversation_1' as never })
   }
 
-  it('shows the affordance from-a-conversation with the inboxAi flag on; hides it standalone or with the flag off', async () => {
+  it('shows the affordance from-a-conversation; hides it standalone', async () => {
     renderFromConversation()
     expect(await screen.findByRole('button', { name: /Auto-fill/ })).toBeInTheDocument()
     cleanup()
 
     // Standalone (no conversation): exactly the Phase-4 dialog.
     renderDialog()
-    await screen.findByText('Bug report')
-    expect(screen.queryByRole('button', { name: /Auto-fill/ })).toBeNull()
-    cleanup()
-
-    // Flag off: the affordance never renders.
-    mocks.routeContext = { settings: { featureFlags: { inboxAi: false } } }
-    renderFromConversation()
     await screen.findByText('Bug report')
     expect(screen.queryByRole('button', { name: /Auto-fill/ })).toBeNull()
   })
@@ -414,5 +415,23 @@ describe('CreateTicketDialog — Phase 5 copilot auto-fill', () => {
     expect((screen.getByPlaceholderText('Summarize the request…') as HTMLInputElement).value).toBe(
       'Suggested'
     )
+  })
+})
+
+describe('CreateTicketDialog — attachment tray', () => {
+  it('offers a file picker next to the description composer', async () => {
+    renderDialog()
+    expect(await screen.findByRole('button', { name: 'Attach image' })).toBeInTheDocument()
+  })
+
+  it('blocks create while an image is still uploading', async () => {
+    mocks.uploading = true
+    renderDialog()
+    fireEvent.change(await screen.findByPlaceholderText('Summarize the request…'), {
+      target: { value: 'Has a title' },
+    })
+    expect(screen.getByRole('button', { name: 'Create ticket' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Create ticket' }))
+    expect(mocks.mutate).not.toHaveBeenCalled()
   })
 })

@@ -5,6 +5,8 @@ import {
   contentJsonToMarkdown,
   projectContentJsonToMarkdown,
   commentMarkdownToTiptapJson,
+  githubMarkdownToTiptapJson,
+  normalizeGitHubMarkdown,
   tiptapJsonToText,
   hasTextLeaf,
   hasImageNode,
@@ -280,6 +282,26 @@ describe('contentJsonToMarkdown', () => {
     expect(result.replace(/\\/g, '')).toContain('[Embedded post: post_123]')
   })
 
+  test('derives a name-only crossed_fingers emoji to its Unicode glyph', () => {
+    // attrs.name is the canonical name, which is NOT in shortcodes[] — the
+    // markdown path must still resolve 🤞 instead of leaving :crossed_fingers:.
+    const doc = {
+      type: 'doc' as const,
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'Luck ' },
+            { type: 'emoji', attrs: { name: 'crossed_fingers' } },
+          ],
+        },
+      ],
+    }
+    const result = projectContentJsonToMarkdown(doc, 'fallback')
+    expect(result).toContain('🤞')
+    expect(result).not.toContain(':crossed_fingers:')
+  })
+
   test('projects current text for an image-free structured-only edit', () => {
     const doc = {
       type: 'doc' as const,
@@ -396,6 +418,20 @@ describe('commentMarkdownToTiptapJson', () => {
     const result = commentMarkdownToTiptapJson('Hello 😀 world!')
     const json = JSON.stringify(result)
     expect(json).toContain('😀')
+  })
+})
+
+describe('githubMarkdownToTiptapJson', () => {
+  test('turns a literal backslash-n body into real line breaks', () => {
+    expect(normalizeGitHubMarkdown('Steps:\\n1. Open Safari')).toBe('Steps:\n1. Open Safari')
+    const result = githubMarkdownToTiptapJson(
+      'Steps:\\n1. Open checkout on Safari 17\\n2. Submit payment'
+    )
+    const json = JSON.stringify(result)
+    expect(json).not.toContain('\\n')
+    expect(json).toContain('Steps:')
+    expect(json).toContain('Open checkout')
+    expect(json).toContain('orderedList')
   })
 })
 

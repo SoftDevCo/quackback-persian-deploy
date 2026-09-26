@@ -6,6 +6,7 @@ import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 import { execSync } from 'child_process'
 import { readFileSync } from 'fs'
+import { CLIENT_PROTECTED_SPECIFIERS } from './src/lib/server/policy/client-import-protection'
 
 /**
  * Replace the server-only structured logger with a no-op stub in the CLIENT
@@ -33,6 +34,92 @@ function stubServerLoggerInClient(): PluginOption {
         return stub
       }
       return null
+    },
+  }
+}
+
+/**
+ * Dev only: keep SSR-only bare imports out of the CLIENT dependency optimizer.
+ *
+ * To inline route CSS into dev SSR HTML, TanStack Start's dev-server plugin
+ * serves `/@tanstack-start/styles.css?routes=…` by crawling the SSR module
+ * graph (`start-plugin-core/src/vite/dev-server-plugin/dev-styles.ts`,
+ * `findModuleDeps`). It looks every SSR dep up through the mixed
+ * `server.moduleGraph.getModuleByUrl`, which resolves the URL in the client
+ * environment as well. Server-only packages reached that way (`pino`,
+ * `jose/errors`, `postgres`, …) have no client importer, but Vite's resolver
+ * still registers them as newly discovered client deps → re-bundle →
+ * "optimized dependencies changed. reloading". Any route chunk in flight at
+ * that moment fails with `504 Outdated Optimize Dep` / "Failed to fetch
+ * dynamically imported module", which is the blank page seen when clicking
+ * into /admin from the portal right after the dev server starts or the deps
+ * cache is invalidated.
+ *
+ * A real client import always carries its importing module, whereas Vite's
+ * plugin container substitutes `<root>/index.html` when a lookup has no
+ * importer (`EnvironmentPluginContainer.resolveId`); the optimizer's own scan
+ * additionally passes `scan: true`. So a bare specifier resolved in the client
+ * environment with that placeholder importer and no scan flag can only be the
+ * crawl. Answer it with an inert virtual module: the crawl still gets a node
+ * (with nothing to descend into) and the optimizer never hears about the
+ * package. Stylesheet specifiers are left alone — the crawl needs those (e.g.
+ * `@fontsource/…/400.css`) to resolve to real files so the CSS is inlined — as
+ * are ids with a scheme (`virtual:`, `node:`), which belong to other plugins
+ * or the browser-external shim. Production builds are untouched (`apply:
+ * 'serve'`); the upstream fix is for the crawl to use the SSR environment's
+ * own module graph.
+ */
+function keepSsrOnlyDepsOutOfClientOptimizer(): PluginOption {
+  const VIRTUAL_PREFIX = '\0quackback:ssr-only-dep:'
+  // Same shape as Vite's bareImportRE: a package name, not a path.
+  const bareSpecifierRE = /^[\w@][^:]*$/
+  const stylesheetRE = /\.(css|less|sass|scss|styl|stylus|pcss|postcss|sss)(?:$|\?)/
+  return {
+    name: 'quackback:keep-ssr-only-deps-out-of-client-optimizer',
+    apply: 'serve',
+    enforce: 'pre',
+    resolveId(id, importer, options) {
+      if (this.environment?.name !== 'client' || options.scan) return null
+      const placeholderImporter = path.join(this.environment.config.root, 'index.html')
+      if (importer !== undefined && importer !== placeholderImporter) return null
+      if (!bareSpecifierRE.test(id) || stylesheetRE.test(id)) return null
+      return VIRTUAL_PREFIX + id
+    },
+    load(id) {
+      if (id.startsWith(VIRTUAL_PREFIX)) return 'export {}'
+      return null
+    },
+  }
+}
+
+/**
+ * Nitro's Vite pre-middleware skips any request it classifies as a static
+ * asset (`sec-fetch-dest: image`, or a `.png`/`.jpg`/… extension without
+ * `Accept: text/html`) and marks it `_nitroHandled` so the post-middleware
+ * never sees it either. Browser `<img src="/api/storage/…/file.png">` is
+ * exactly that shape, so the splat route never runs and Vite answers
+ * `Cannot GET`. Clear the asset signals for this prefix only; Nitro's
+ * post-middleware then serves the bytes.
+ */
+function letNitroServeStorageAssets(): PluginOption {
+  return {
+    name: 'quackback:let-nitro-serve-storage-assets',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        const pathname = req.url?.split('?')[0] ?? ''
+        if (!pathname.startsWith('/api/storage/')) {
+          next()
+          return
+        }
+        // Drop dest so Nitro does not take the `image`/`style` branch.
+        delete req.headers['sec-fetch-dest']
+        const accept = req.headers.accept
+        if (typeof accept !== 'string' || !/\btext\/html\b/.test(accept)) {
+          req.headers.accept = accept ? `${accept}, text/html` : 'text/html'
+        }
+        next()
+      })
     },
   }
 }
@@ -99,6 +186,8 @@ export default defineConfig(({ mode }) => {
       tsconfigPaths: true,
     },
     plugins: [
+      letNitroServeStorageAssets(),
+      keepSsrOnlyDepsOutOfClientOptimizer(),
       stubServerLoggerInClient(),
       tailwindcss(),
       nitro({
@@ -112,17 +201,7 @@ export default defineConfig(({ mode }) => {
         },
         importProtection: {
           behavior: { dev: 'error', build: 'error' },
-          client: {
-            specifiers: [
-              'postgres',
-              '@quackback/db',
-              '@quackback/db/client',
-              '@quackback/db/schema',
-              'openai',
-              '@quackback/logger',
-              'pino',
-            ],
-          },
+          client: { specifiers: [...CLIENT_PROTECTED_SPECIFIERS] },
         },
       }),
       viteReact(),

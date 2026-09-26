@@ -15,10 +15,34 @@ import type { TierFeatureFlags } from '../tier-limits.types'
  * derive what it grants. A free-form string can do none of those. Operators who
  * need a bespoke arrangement express it as explicit entitlement overrides on
  * top of a catalogue plan, not as a new plan id.
+ *
+ * Canonical ids are `free` / `pro` / `business` / `enterprise`, matching
+ * the control plane after B4. Incoming leftover `growth` is Pro (the
+ * $29 / 5-seat SKU). Incoming `scale` is Enterprise. {@link canonicalPlanId}
+ * maps those aliases before catalogue lookup or storage. `pro` is the
+ * entry tier — do not map it to Business.
  */
-export const PLAN_IDS = ['free', 'growth', 'pro', 'scale'] as const
+export const PLAN_IDS = ['free', 'pro', 'business', 'enterprise'] as const
 
 export type PlanId = (typeof PLAN_IDS)[number]
+
+/** Leftover slugs that still mean a canonical {@link PlanId}. */
+export const PLAN_ID_ALIASES = {
+  growth: 'pro',
+  scale: 'enterprise',
+} as const satisfies Record<string, PlanId>
+
+export type PlanIdAlias = keyof typeof PLAN_ID_ALIASES
+
+/**
+ * Maps incoming CP/checkout slugs onto stored catalogue ids.
+ * Unknown strings are returned as-is; {@link isPlanId} is the closed-set guard.
+ */
+export function canonicalPlanId(id: string): PlanId {
+  if (id === 'growth') return 'pro'
+  if (id === 'scale') return 'enterprise'
+  return id as PlanId
+}
 
 export interface PlanDefinition {
   id: PlanId
@@ -31,10 +55,9 @@ export interface PlanDefinition {
   rank: number
   /**
    * Indefinite article for {@link name} in refusal copy ("a Pro feature",
-   * "an Advanced feature"). Declared rather than derived: an initial-vowel
+   * "an Enterprise feature"). Declared rather than derived: an initial-vowel
    * test is wrong for names like "Unlimited" ("an Unlimited plan") and
-   * "One" ("a One plan"), and there are only a handful of plans. Every plan
-   * in today's catalogue happens to take "a".
+   * "One" ("a One plan"), and there are only a handful of plans.
    */
   article: 'a' | 'an'
   /** Entitlements this plan grants by default. */
@@ -76,18 +99,15 @@ export const ENTITLEMENTS = {
     chokepoint: 'lib/server/functions/sso.ts (upsertIdentityProviderFn)',
   },
   /**
-   * Not wired: the customer-facing half (the orchestrator) and the
-   * teammate-facing half (the Copilot gate) are two seams, and the second one
-   * already carries {@link ENTITLEMENTS.aiDrafts}. Wiring this key wants a
-   * decision about which surfaces each of the two AI keys owns, not another
-   * gate on the same line.
+   * Customer-facing Quinn replies in Messenger. Teammate Copilot stays on
+   * {@link ENTITLEMENTS.aiDrafts}; this key only gates the orchestrator.
    */
   aiAssistant: {
     friendly: 'The AI assistant',
     plural: false,
     tierFeature: null,
     chokepoint:
-      'not wired: lib/server/domains/assistant/assistant.orchestrator.ts, lib/server/domains/assistant/copilot-gate.ts',
+      'lib/server/domains/assistant/assistant.orchestrator.ts (previewAssistantTurnForConversation, runAssistantTurnForConversation)',
   },
   /**
    * Post summaries and sentiment. Deliberately *not* the drafting half of the
@@ -152,6 +172,18 @@ export const ENTITLEMENTS = {
     tierFeature: null,
     chokepoint: 'lib/server/functions/audit-log.ts (listAuditEventsFn)',
   },
+  /**
+   * Display-only overlay. Never granted by a plan. Self-hosted installs must
+   * keep the badge: do not call {@link isEntitled} for this key, because that
+   * function is true when cloud is off.
+   */
+  hideBranding: {
+    friendly: 'Branding removal',
+    plural: false,
+    tierFeature: null,
+    chokepoint:
+      'not wired: display-only via shouldShowPoweredBy; lib/server/domains/settings/cloud/powered-by.ts',
+  },
 } as const satisfies Record<string, EntitlementDefinition>
 
 export interface EntitlementDefinition {
@@ -204,17 +236,25 @@ export const PLAN_CATALOGUE: Record<PlanId, PlanDefinition> = {
     rank: 0,
     grants: [],
   },
-  growth: {
-    id: 'growth',
-    article: 'a',
-    name: 'Growth',
-    rank: 1,
-    grants: ['customDomain', 'aiAssistant', 'aiDrafts', 'apiAccess', 'mcpServer', 'webhooks'],
-  },
   pro: {
     id: 'pro',
     article: 'a',
     name: 'Pro',
+    rank: 1,
+    grants: [
+      'customDomain',
+      'aiAssistant',
+      'aiDrafts',
+      'aiInsights',
+      'apiAccess',
+      'mcpServer',
+      'webhooks',
+    ],
+  },
+  business: {
+    id: 'business',
+    article: 'a',
+    name: 'Business',
     rank: 2,
     grants: [
       'customDomain',
@@ -227,10 +267,10 @@ export const PLAN_CATALOGUE: Record<PlanId, PlanDefinition> = {
       'workflows',
     ],
   },
-  scale: {
-    id: 'scale',
-    article: 'a',
-    name: 'Scale',
+  enterprise: {
+    id: 'enterprise',
+    article: 'an',
+    name: 'Enterprise',
     rank: 3,
     grants: [
       'customDomain',

@@ -4,11 +4,14 @@ import { useTheme } from 'next-themes'
 import { resolvePortalNavItems } from './portal-header-nav'
 import { usePreviewDraft } from './preview-draft-context'
 import { isProductEnabled } from '@/lib/shared/types/settings'
+import { isStatusPagePublished } from '@/lib/shared/status-settings'
+import { isPortalSupportSurfaceEnabled } from '@/lib/shared/support-surfaces'
 import { useIntl, FormattedMessage } from 'react-intl'
 import { cn } from '@/lib/shared/utils'
 import { isTeamMember, Role } from '@/lib/shared/roles'
 import { Button } from '@/components/ui/button'
-import { signOut, authClient } from '@/lib/client/auth-client'
+import { signOut } from '@/lib/client/auth-client'
+import { startOidcSignIn } from '@/lib/client/start-oidc-sign-in'
 import { stashSsoAttempt } from '@/lib/client/sso-attempt-stash'
 import { signinErrorLanding } from '@/lib/shared/auth-prompt'
 import {
@@ -30,10 +33,15 @@ import {
   SunIcon,
 } from '@heroicons/react/24/solid'
 import { useAuthPopoverSafe } from '@/components/auth/auth-popover-context'
-import { hasAnyPortalAuthMethod, resolveSoleOidcProvider } from '@/components/auth/oauth-buttons'
+import {
+  hasAnyPortalAuthMethod,
+  hasDistinctSignup,
+  resolveSoleOidcProvider,
+} from '@/components/auth/oauth-buttons'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getMyConversationsFn } from '@/lib/server/functions/conversation'
 import { PORTAL_MY_CONVERSATIONS_QUERY_KEY } from '@/lib/client/queries/portal-support'
+import { removeViewerScopedPortalQueries } from '@/lib/client/queries/portal'
 import { useAuthBroadcast } from '@/lib/client/hooks/use-auth-broadcast'
 import { NotificationBell } from '@/components/notifications'
 
@@ -67,24 +75,17 @@ export function PortalHeader({
 
   const flags = settings?.featureFlags
   const feedbackEnabled = isProductEnabled(flags, 'feedback')
-  const helpCenterEnabled =
-    isProductEnabled(flags, 'helpCenter') && !!settings?.helpCenterConfig?.enabled
-  const supportEnabled =
-    !!flags?.supportTickets || (!!flags?.supportInbox && !!settings?.portalConfig?.support?.enabled)
-  // Default true so a workspace that never customized this setting keeps
-  // the changelog tab it had before this toggle existed.
-  const changelogEnabled =
-    isProductEnabled(flags, 'changelog') && (settings?.changelogConfig?.portalTabEnabled ?? true)
-  // Status tab: flag + product enabled + tab toggle. A non-public audience
-  // still needs a signed-in viewer to bother showing the tab; the route
-  // enforces the real per-viewer segment gate (settings here are
-  // workspace-global, not per-viewer).
+  const helpCenterEnabled = isProductEnabled(flags, 'helpCenter')
+  const supportEnabled = isPortalSupportSurfaceEnabled(flags, settings?.portalConfig)
+  const changelogEnabled = isProductEnabled(flags, 'changelog')
+  // Status tab: product flag + published. A non-public audience still needs
+  // a signed-in viewer to bother showing the tab; the route enforces the
+  // real per-viewer segment gate (settings here are workspace-global, not
+  // per-viewer). Hide or reorder the tab in Portal → Navigation.
   const statusAudience = settings?.statusConfig?.audience ?? 'public'
   const statusLoggedIn = !!session?.user && session.user.principalType !== 'anonymous'
   const statusEnabled =
-    isProductEnabled(flags, 'status') &&
-    !!settings?.statusConfig?.enabled &&
-    (settings?.statusConfig?.portalTabEnabled ?? true) &&
+    isStatusPagePublished(flags, settings?.statusConfig) &&
     (statusAudience === 'public' || statusLoggedIn)
   const onHelpPages = pathname === '/hc' || pathname.startsWith('/hc/')
   // Admin-configured help center links render beside the built-in nav on help
@@ -116,6 +117,15 @@ export function PortalHeader({
     oidcProviders: settings?.publicPortalConfig?.oidcProviders,
   })
 
+  // A separate "Sign up" button only earns its place when sign-up mode actually
+  // differs from login — i.e. password auth is on and self-service signup is
+  // open. Otherwise magic-link / SSO create the account implicitly and the two
+  // buttons do the same thing, so collapse to a single "Log in".
+  const showSignup = hasDistinctSignup({
+    oauth: settings?.publicAuthConfig?.oauth,
+    openSignup: settings?.publicPortalConfig?.openSignup,
+  })
+
   // When the ONLY sign-in method is a single OIDC provider, every sign-in goes
   // through it — so "Log in" / "Sign up" redirect straight to the IdP and skip
   // the email-entry dialog entirely.
@@ -138,9 +148,10 @@ export function PortalHeader({
   // Listen for auth success to refetch session and role via router invalidation
   useAuthBroadcast({
     onSuccess: () => {
-      // Invalidate user-scoped queries so reaction highlights and vote data refresh
-      queryClient.invalidateQueries({ queryKey: ['portal', 'post'] })
+      // Refresh vote highlights and drop viewer-scoped data (post detail,
+      // feed, tag catalog) so a team sign-in gains internal tags.
       queryClient.invalidateQueries({ queryKey: ['votedPosts'] })
+      removeViewerScopedPortalQueries(queryClient)
       // Refetch loaders (includes session and userRole) for the new session.
       void router.invalidate()
     },
@@ -184,7 +195,7 @@ export function PortalHeader({
       providerType: 'oidc',
       callbackUrl: pathname,
     })
-    void authClient.signIn.oauth2({
+    void startOidcSignIn({
       providerId: soleOidcProviderId,
       callbackURL: pathname,
       errorCallbackURL: signinErrorLanding(pathname),
@@ -193,9 +204,10 @@ export function PortalHeader({
 
   const handleSignOut = async () => {
     await signOut()
-    // Clear user-scoped caches so stale reaction/vote highlights don't persist
-    queryClient.invalidateQueries({ queryKey: ['portal', 'post'] })
+    // Clear user-scoped caches: vote highlights, and every viewer-scoped
+    // payload (a team member's internal tags must not outlive their session).
     queryClient.invalidateQueries({ queryKey: ['votedPosts'] })
+    removeViewerScopedPortalQueries(queryClient)
     router.invalidate() // Refetch session
     router.navigate({ to: '/' })
   }
@@ -393,10 +405,12 @@ export function PortalHeader({
           </DropdownMenuContent>
         </DropdownMenu>
       ) : openAuthPopover && portalAuthEnabled ? (
-        // Anonymous user with auth popover available - show login/signup buttons
+        // Anonymous user with auth popover available. Show "Sign up" only when it
+        // leads somewhere different from "Log in" (see hasDistinctSignup);
+        // otherwise the sole "Log in" button becomes the primary CTA.
         <div className="flex items-center gap-2">
           <Button
-            variant="ghost"
+            variant={showSignup ? 'ghost' : 'default'}
             size="sm"
             onClick={() =>
               soleOidcProviderId ? redirectToSoleProvider() : openAuthPopover({ mode: 'login' })
@@ -404,14 +418,16 @@ export function PortalHeader({
           >
             <FormattedMessage id="portal.header.auth.logIn" defaultMessage="Log in" />
           </Button>
-          <Button
-            size="sm"
-            onClick={() =>
-              soleOidcProviderId ? redirectToSoleProvider() : openAuthPopover({ mode: 'signup' })
-            }
-          >
-            <FormattedMessage id="portal.header.auth.signUp" defaultMessage="Sign up" />
-          </Button>
+          {showSignup && (
+            <Button
+              size="sm"
+              onClick={() =>
+                soleOidcProviderId ? redirectToSoleProvider() : openAuthPopover({ mode: 'signup' })
+              }
+            >
+              <FormattedMessage id="portal.header.auth.signUp" defaultMessage="Sign up" />
+            </Button>
+          )}
         </div>
       ) : null}
     </div>

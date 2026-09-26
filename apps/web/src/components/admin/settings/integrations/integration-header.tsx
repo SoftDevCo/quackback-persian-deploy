@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { BackLink } from '@/components/ui/back-link'
 import { Badge } from '@/components/ui/badge'
 import { DocsLink } from '@/components/ui/docs-link'
+import { canInstallIntegration } from '@/lib/shared/integration-connect'
 import type { IntegrationCatalogEntry } from '@/lib/shared/integration-types'
 
 interface IntegrationHeaderProps {
@@ -10,6 +11,8 @@ interface IntegrationHeaderProps {
   workspaceName?: string | null
   icon?: ReactNode
   actions?: ReactNode
+  /** Health column. When set, identity and health share one settings card. */
+  aside?: ReactNode
 }
 
 export function IntegrationHeader({
@@ -18,6 +21,7 @@ export function IntegrationHeader({
   workspaceName,
   icon,
   actions,
+  aside,
 }: IntegrationHeaderProps) {
   const isConnected = status === 'active'
   const isPaused = status === 'paused'
@@ -26,15 +30,22 @@ export function IntegrationHeader({
     <>
       <BackLink to="/admin/settings/integrations">Integrations</BackLink>
 
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-4">
+      <div
+        className={
+          aside
+            ? 'overflow-hidden rounded-xl border border-border/50 bg-card shadow-sm md:grid md:grid-cols-[minmax(0,1fr)_minmax(280px,340px)]'
+            : 'flex flex-col items-start justify-between gap-4 sm:flex-row'
+        }
+        data-settings-card={aside ? '' : undefined}
+      >
+        <div className={`flex min-w-0 items-center gap-4 ${aside ? 'p-4' : ''}`}>
           <div
-            className={`flex h-12 w-12 items-center justify-center rounded-xl ${catalog.iconBg}`}
+            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${catalog.iconBg}`}
           >
             {icon ?? <span className="text-white font-bold text-lg">{catalog.name.charAt(0)}</span>}
           </div>
-          <div>
-            <div className="flex items-center gap-2">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl font-semibold text-foreground">{catalog.name}</h1>
               {isConnected && (
                 <Badge variant="outline" className="border-green-500/30 text-green-600">
@@ -46,12 +57,12 @@ export function IntegrationHeader({
                   Paused
                 </Badge>
               )}
-              {!status && !catalog.available && catalog.configurable && (
+              {!status && !canInstallIntegration(catalog) && catalog.configurable && (
                 <Badge variant="outline" className="text-muted-foreground/60 border-border/40">
                   Not configured
                 </Badge>
               )}
-              {!status && !catalog.available && !catalog.configurable && (
+              {!status && !canInstallIntegration(catalog) && !catalog.configurable && (
                 <Badge variant="outline" className="text-muted-foreground/60 border-border/40">
                   Coming soon
                 </Badge>
@@ -71,7 +82,11 @@ export function IntegrationHeader({
           </div>
         </div>
 
-        {actions}
+        {aside ? (
+          <div className="border-t border-border/50 p-4 md:border-t-0 md:border-l">{aside}</div>
+        ) : (
+          actions
+        )}
       </div>
     </>
   )

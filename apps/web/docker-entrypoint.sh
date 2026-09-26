@@ -5,13 +5,6 @@ echo "========================================"
 echo "  Quackback starting..."
 echo "========================================"
 
-if [ "$MIGRATE_LEGACY_STORAGE" = "1" ]; then
-  echo ""
-  echo "Migrating legacy storage objects into the workspace namespace..."
-  bun /app/migrate-legacy-storage.mjs
-  echo "Legacy storage migration complete."
-fi
-
 # Fleet migrator is a command, not a server. The default path below would
 # otherwise run single-DB migrate.mjs against DATABASE_URL and bind PORT —
 # which is the operator trap for QUACKBACK_ROLE=migrator on this entrypoint.

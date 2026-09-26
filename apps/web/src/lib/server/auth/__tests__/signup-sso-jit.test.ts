@@ -102,6 +102,8 @@ function makeProvider(overrides: Partial<IdentityProvider> = {}): IdentityProvid
     autoProvisionRole: 'member',
     claimMapping: null,
     showButton: false,
+    logoKey: null,
+    logoUrl: null,
     detailsChangedAt: null,
     lastSuccessfulTestAt: null,
     lastTestCapture: null,
@@ -158,6 +160,12 @@ describe('an IdP configured to create users, on its own callback', () => {
   it('lets the employee through', async () => {
     expect(
       await creationAllowed(EMPLOYEE, { path: OIDC_CALLBACK, params: { providerId: 'acme-idp' } })
+    ).toBe(true)
+  })
+
+  it('lets the employee through on the 1.7 social callback path', async () => {
+    expect(
+      await creationAllowed(EMPLOYEE, { path: '/callback/:id', params: { id: 'acme-idp' } })
     ).toBe(true)
   })
 

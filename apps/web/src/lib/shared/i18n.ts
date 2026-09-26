@@ -1,4 +1,4 @@
-export const DEFAULT_LOCALE = 'fa' as const
+export const DEFAULT_LOCALE = 'en' as const
 
 export const SUPPORTED_LOCALES = [
   'en',
@@ -6,7 +6,6 @@ export const SUPPORTED_LOCALES = [
   'fr',
   'es',
   'ar',
-  'fa',
   'ru',
   'pt-br',
   'zh-cn',

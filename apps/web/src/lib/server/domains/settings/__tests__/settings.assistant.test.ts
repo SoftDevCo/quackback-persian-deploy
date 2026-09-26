@@ -1,3 +1,4 @@
+import { DEFAULT_WORKSPACE_ASSISTANT } from '@/lib/shared/assistant/config'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_ASSISTANT_CONFIG, type AssistantConfig } from '@/lib/shared/assistant/config'
 
@@ -69,12 +70,13 @@ import {
 } from '../settings.assistant'
 
 const CONFIG: AssistantConfig = {
-  version: 3,
+  version: 4,
   identity: {
     name: 'Avery',
     avatarUrl: 'https://cdn.example.test/avery.png',
   },
   agents: {
+    workspace: structuredClone(DEFAULT_WORKSPACE_ASSISTANT),
     agent: {
       voice: {
         tone: 'balanced',
@@ -277,11 +279,33 @@ describe('V2 assistant configuration reads', () => {
       config: DEFAULT_ASSISTANT_CONFIG,
       revision: 23,
       workspaceName: 'Acme Support',
-      connectorsEnabled: false,
-      skillsEnabled: false,
       configFallbackReason: 'invalid_assistant_config',
     })
     expect(result.config).not.toBe(DEFAULT_ASSISTANT_CONFIG)
+  })
+
+  it('uses internally managed workspace defaults at runtime and keeps the Slack toggle', async () => {
+    const persisted = structuredClone(CONFIG)
+    persisted.agents.workspace.instructions = 'Tenant-authored guidance'
+    persisted.agents.workspace.knowledge.tickets = false
+    persisted.agents.workspace.slack.enabled = true
+    hoisted.requireSettings.mockResolvedValue(
+      settingsRow({
+        assistantConfig: persisted,
+        assistantConfigRevision: 31,
+      })
+    )
+
+    const result = await getAssistantRuntimeConfig()
+    expect(result.revision).toBe(31)
+    expect(result.config.agents.workspace.instructions).toBe('')
+    expect(result.config.agents.workspace.knowledge.tickets).toBe(true)
+    expect(result.config.agents.workspace.slack.enabled).toBe(true)
+
+    await expect(getAssistantSettings()).resolves.toMatchObject({
+      revision: 31,
+      config: { agents: { workspace: { instructions: 'Tenant-authored guidance' } } },
+    })
   })
 })
 

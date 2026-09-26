@@ -766,7 +766,7 @@ function InboxPage() {
           conversationKeys.agentThread(conversationId),
           (prev) => applyAgentThreadEvent(prev, evt, conversationId)
         )
-      } else if (evt.kind === 'ticket_message') {
+      } else if (evt.kind === 'ticket_message' || evt.kind === 'ticket_message_updated') {
         reconcileCachedThread<TicketThreadCache>(
           queryClient,
           ticketKeys.thread(evt.ticketId),
@@ -837,9 +837,9 @@ function InboxPage() {
 
   // Whether the detail panel's Copilot tab exists for this viewer right now —
   // the SAME gate InboxDetailPanel renders the tab from (useCopilotTabGate:
-  // inboxAi flag + copilot.use) plus the ≥xl viewport that renders
-  // the panel at all. Gates the Ask Copilot command-bar row and makes the `q`
-  // shortcut a no-op when there is no panel to open.
+  // copilot.use) plus the ≥xl viewport that renders the panel at all. Gates
+  // the Ask Copilot command-bar row and makes the `q` shortcut a no-op when
+  // there is no panel to open.
   const copilotTabGate = useCopilotTabGate()
   const isDetailPanelViewport = useMediaQuery(DETAIL_PANEL_MEDIA_QUERY)
   const copilotAvailable = copilotTabGate && isDetailPanelViewport

@@ -17,6 +17,8 @@ interface OAuthConnectionActionsProps {
   displayName: string
   /** Description for the disconnect dialog */
   disconnectDescription: string
+  /** Connect button label. Defaults to "Connect". */
+  connectLabel?: string
 }
 
 export function OAuthConnectionActions({
@@ -26,6 +28,7 @@ export function OAuthConnectionActions({
   getConnectUrl,
   displayName,
   disconnectDescription,
+  connectLabel = 'Connect',
 }: OAuthConnectionActionsProps) {
   const search = useSearch({ strict: false })
   const deleteMutation = useDeleteIntegration()
@@ -35,6 +38,15 @@ export function OAuthConnectionActions({
 
   useEffect(() => {
     const searchParams = search as Record<string, string | undefined>
+    if (
+      searchParams[searchParamKey] === 'error' &&
+      searchParams.reason === 'already_connected_elsewhere'
+    ) {
+      toast.error(
+        `This ${displayName} account is already connected to another Quackback workspace.`
+      )
+      return
+    }
     if (searchParams[searchParamKey] !== 'connected') return
 
     setShowSuccess(true)
@@ -83,7 +95,7 @@ export function OAuthConnectionActions({
                 Connecting...
               </>
             ) : (
-              'Connect'
+              connectLabel
             )}
           </Button>
         )}

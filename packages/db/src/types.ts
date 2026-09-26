@@ -26,6 +26,20 @@ import type { tickets, ticketStatuses, ticketConversations, ticketLinks } from '
 import type { ticketTypes } from './schema/ticket-types'
 import type { ticketActivity } from './schema/ticket-activity'
 import type { principal } from './schema/auth'
+import type { workspaceExperiments } from './schema/labs'
+
+export type {
+  IdentitySource,
+  ProfileField,
+  ClaimRoleMapping,
+  IdentityProviderClaimMapping,
+  SourceSnapshot,
+  SourceUnavailableReason,
+  CapturedIdentity,
+  IdentityProviderTestCapture,
+  IdentityProviderTestCaptureV1,
+  IdentityProviderTestCaptureV2,
+} from './schema/auth'
 
 // Status categories (defined here to avoid circular imports in tests)
 export const STATUS_CATEGORIES = ['active', 'complete', 'closed'] as const
@@ -683,10 +697,10 @@ export type AgentAvailability = (typeof AGENT_AVAILABILITY_VALUES)[number]
 // The inbound channel a conversation arrived on — kept in sync with the
 // conversations.channel column enum. Widget threads are 'messenger' (ticket
 // intake forms mint messenger-channel backing conversations with source
-// 'ticket_form'); 'email' threads point at their inbound channel account.
-// This keeps one polymorphic conversation object with a channel field, not
-// a per-channel table.
-export const CHANNELS = ['messenger', 'email'] as const
+// 'ticket_form'); 'email' threads point at their inbound channel account;
+// 'github' threads are a connected repository's issues. This keeps one
+// polymorphic conversation object with a channel field, not a per-channel table.
+export const CHANNELS = ['messenger', 'email', 'github'] as const
 export type Channel = (typeof CHANNELS)[number]
 
 // Agent-set conversation priority for inbox triage — kept in sync with the
@@ -937,9 +951,34 @@ export type BlockReplyMetadata =
   | { kind: 'collectReply'; inReplyToMessageId: string; value: string }
   | { kind: 'csat'; inReplyToMessageId: string; rating: number; comment?: string }
 
+/** Outbound delivery of an agent reply onto a thread-addressed channel
+ *  (the customer's GitHub issue, etc.). Pending at insert; sent once the
+ *  provider accepts; failed if the post does not land. Messenger/email
+ *  replies do not carry this. */
+export type ChannelDeliveryStatus = 'pending' | 'sent' | 'failed'
+
+export interface ChannelDelivery {
+  status: ChannelDeliveryStatus
+  channel: Channel
+  /** ISO timestamp of the last status change. */
+  at: string
+  /** Provider-side id once accepted (GitHub issue comment id). */
+  externalId?: string
+  /** Short agent-facing reason when status is failed. */
+  error?: string
+}
+
 export interface ConversationMessageMetadata {
   /** The channel this message arrived through, when not the in-app messenger. */
-  source?: 'email'
+  source?: 'email' | 'github'
+  /** GitHub issue comment REST id, used to dedupe webhook retries. */
+  githubCommentId?: string
+  /** Live outbound status for a thread-addressed channel send. */
+  channelDelivery?: ChannelDelivery
+  /** GitHub issue number for the message's thread, when known. */
+  githubIssueNumber?: string
+  /** Tracker inbound webhook body hash, used to dedupe redelivered status notes. */
+  inboundDeliveryKey?: string
   /** Provider Message-ID for an inbound email, used to dedupe webhook retries. */
   emailMessageId?: string
   /** RFC 5322 threading of an inbound email message: the parent it replied to
@@ -1054,6 +1093,10 @@ export type NewChangelogEntryPost = InferInsertModel<typeof changelogEntryPosts>
 // Principal types
 export type Principal = InferSelectModel<typeof principal>
 export type NewPrincipal = InferInsertModel<typeof principal>
+
+// Labs experiments (one row per workspace + registered experiment id)
+export type WorkspaceExperiment = InferSelectModel<typeof workspaceExperiments>
+export type NewWorkspaceExperiment = InferInsertModel<typeof workspaceExperiments>
 
 // Extended types for queries with relations
 export type CommentWithReplies = Comment & {

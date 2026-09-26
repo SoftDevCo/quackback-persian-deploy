@@ -6,6 +6,8 @@ import { BackLink } from '@/components/ui/back-link'
 import { PageHeader } from '@/components/shared/page-header'
 import { TagList } from '@/components/admin/settings/tags/tag-list'
 import { AiBackfillCard } from '@/components/admin/settings/tags/ai-backfill-card'
+import { PERMISSIONS } from '@/lib/shared/permissions'
+import { assertRoutePermission } from '@/lib/shared/route-permission'
 import { isProductEnabled } from '@/lib/shared/types/settings'
 
 export const Route = createFileRoute('/admin/settings/tags')({
@@ -15,6 +17,7 @@ export const Route = createFileRoute('/admin/settings/tags')({
     }
   },
   loader: async ({ context }) => {
+    assertRoutePermission(context.permissions, PERMISSIONS.TAG_MANAGE)
     const { queryClient } = context
     await Promise.all([
       queryClient.ensureQueryData(adminQueries.tags()),
@@ -32,7 +35,7 @@ function TagsPage() {
   return (
     <div className="space-y-6 max-w-5xl">
       <div className="lg:hidden">
-        <BackLink to="/admin/settings">Settings</BackLink>
+        <BackLink to="/admin/settings/feedback">Feedback & Roadmaps</BackLink>
       </div>
       <PageHeader
         icon={TagIcon}

@@ -1,5 +1,9 @@
 import { randomBytes } from 'crypto'
-import { db, and, boards, eq, lte, or, isNull, sql, settings } from '@/lib/server/db'
+import { db, and, eq, lte, or, isNull, sql, settings } from '@/lib/server/db'
+import {
+  CURRENT_WIDGET_SDK_VERSION,
+  sdkVersionFromWidgetRequest,
+} from '@/lib/shared/widget/sdk-version'
 import { logger } from '@/lib/server/logger'
 import { absolutizeOffHostAssetUrl } from '@/lib/server/storage/asset-url'
 import { deleteObject, getPublicUrlOrNull } from '@/lib/server/storage/s3'
@@ -11,12 +15,8 @@ import type {
   UpdateWidgetConfigInput,
   MessengerConfig,
 } from './settings.types'
-import {
-  DEFAULT_WIDGET_CONFIG,
-  DEFAULT_MESSENGER_CONFIG,
-  DEFAULT_HELP_CENTER_CONFIG,
-  resolveFeatureFlags,
-} from './settings.types'
+import { DEFAULT_MESSENGER_CONFIG, resolveFeatureFlags } from './settings.types'
+import { ValidationError } from '@/lib/shared/errors'
 import type { AssistantConfigAuditActor } from './settings.assistant'
 import { recordAuditEventInTransaction } from '@/lib/server/audit/log'
 import {
@@ -24,6 +24,7 @@ import {
   DEFAULT_ASSISTANT_CONFIG,
   type AssistantIdentity,
 } from '@/lib/shared/assistant/config'
+import { isWidgetMessengerEnabled } from '@/lib/shared/support-surfaces'
 
 const log = logger.child({ component: 'settings-widget' })
 export const WIDGET_OBSERVATION_THROTTLE_MS = 15 * 60 * 1000
@@ -96,6 +97,7 @@ export async function observeExternalWidgetRequest(
   const org = await db.query.settings.findFirst({ columns: { id: true } })
   if (!org) return false
 
+  const sdkVersion = sdkVersionFromWidgetRequest(request, CURRENT_WIDGET_SDK_VERSION)
   const staleBefore = new Date(now.getTime() - WIDGET_OBSERVATION_THROTTLE_MS)
   const updated = await db
     .update(settings)
@@ -103,6 +105,7 @@ export async function observeExternalWidgetRequest(
       widgetInstalledFirstSeenAt: sql`coalesce(${settings.widgetInstalledFirstSeenAt}, now())`,
       widgetInstalledLastSeenAt: now,
       widgetInstalledOriginHost: hostname,
+      widgetInstalledSdkVersion: sdkVersion,
     })
     .where(
       and(
@@ -110,7 +113,10 @@ export async function observeExternalWidgetRequest(
         or(
           isNull(settings.widgetInstalledFirstSeenAt),
           isNull(settings.widgetInstalledLastSeenAt),
-          lte(settings.widgetInstalledLastSeenAt, staleBefore)
+          lte(settings.widgetInstalledLastSeenAt, staleBefore),
+          // A newly reported (or newly missing) version is recorded immediately
+          // so the admin "SDK update" hint does not wait out the 15-minute throttle.
+          sql`${settings.widgetInstalledSdkVersion} is distinct from ${sdkVersion}`
         )
       )
     )
@@ -141,6 +147,8 @@ export function publicMessengerConfig(
   identity: AssistantIdentity = DEFAULT_ASSISTANT_CONFIG.identity
 ): PublicMessengerConfig {
   return {
+    // Callers override this with the `supportInbox` flag. Stored
+    // `messenger.enabled` is ignored at the gate.
     enabled: messenger.enabled,
     welcomeMessage: messenger.welcomeMessage,
     offlineMessage: messenger.offlineMessage,
@@ -161,7 +169,7 @@ import {
   requireSettings,
   requireSettingsCached,
   wrapDbError,
-  parseJsonConfig,
+  parseWidgetConfig,
   deepMerge,
   invalidateSettingsCache,
 } from './settings.helpers'
@@ -170,7 +178,7 @@ export async function getWidgetConfig(): Promise<WidgetConfig> {
   try {
     // Read-only + on public hot paths (sdk.js, identify): cached row.
     const org = await requireSettingsCached()
-    return parseJsonConfig(org.widgetConfig, DEFAULT_WIDGET_CONFIG)
+    return parseWidgetConfig(org.widgetConfig)
   } catch (error) {
     log.error({ err: error }, 'get widget config failed')
     wrapDbError('fetch widget config', error)
@@ -181,7 +189,7 @@ export async function updateWidgetConfig(input: UpdateWidgetConfigInput): Promis
   log.info('update widget config')
   try {
     const org = await requireSettings()
-    const existing = parseJsonConfig(org.widgetConfig, DEFAULT_WIDGET_CONFIG)
+    const existing = parseWidgetConfig(org.widgetConfig)
     const incoming = { ...input } as Partial<WidgetConfig>
     if (incoming.messenger && 'routing' in incoming.messenger) {
       const { routing: _routing, ...messenger } = incoming.messenger
@@ -211,7 +219,10 @@ export function widgetActivationConfig(
   publicBoardSlug?: string
 ): WidgetConfig {
   if (mode === 'feedback' && !publicBoardSlug) {
-    throw new Error('Create a public feedback board before connecting the widget')
+    throw new ValidationError(
+      'PUBLIC_BOARD_REQUIRED',
+      'Create a public feedback board before connecting the widget'
+    )
   }
   if (mode === 'messenger') {
     return {
@@ -233,49 +244,6 @@ export function widgetActivationConfig(
   }
 }
 
-/** Enable the selected activation channel in one locked settings update. */
-export async function configureWidgetForActivation(mode: WidgetActivationMode): Promise<{
-  mode: WidgetActivationMode
-  config: WidgetConfig
-  boardId: string | null
-}> {
-  const result = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .select({
-        id: settings.id,
-        widgetConfig: settings.widgetConfig,
-        featureFlags: settings.featureFlags,
-      })
-      .from(settings)
-      .limit(1)
-      .for('update')
-    if (!row) throw new Error('Settings not found')
-
-    const flags = resolveFeatureFlags(row.featureFlags)
-    if (mode === 'messenger' && !flags.supportInbox) {
-      throw new Error('Customer support is turned off for this workspace')
-    }
-
-    const publicBoard =
-      mode === 'feedback'
-        ? await tx.query.boards.findFirst({
-            where: and(isNull(boards.deletedAt), sql`${boards.access}->>'view' = 'anonymous'`),
-            columns: { id: true, slug: true, access: true },
-          })
-        : null
-    const usableBoard = publicBoard?.access.view === 'anonymous' ? publicBoard : null
-    const existing = parseJsonConfig(row.widgetConfig, DEFAULT_WIDGET_CONFIG)
-    const config = widgetActivationConfig(existing, mode, usableBoard?.slug)
-    await tx
-      .update(settings)
-      .set({ widgetConfig: JSON.stringify(config) })
-      .where(eq(settings.id, row.id))
-    return { mode, config, boardId: usableBoard?.id ?? null }
-  })
-  await invalidateSettingsCache()
-  return result
-}
-
 /** Update only the web-widget deployment flags; behavior config is never touched. */
 export async function updateWidgetAssistantDeployment(
   input: { enabled: boolean; respond: boolean },
@@ -289,7 +257,7 @@ export async function updateWidgetAssistantDeployment(
       .for('update')
     if (!row) throw new Error('Settings not found')
 
-    const config = parseJsonConfig(row.widgetConfig, DEFAULT_WIDGET_CONFIG)
+    const config = parseWidgetConfig(row.widgetConfig)
     const current = config.messenger?.assistant ?? {}
     const messenger = {
       ...(config.messenger ?? DEFAULT_MESSENGER_CONFIG),
@@ -310,7 +278,7 @@ export async function updateWidgetAssistantDeployment(
         changedPaths: ['widget.assistant.enabled', 'widget.assistant.respond'],
         transitions: [
           { path: 'widget.assistant.enabled', from: current.enabled ?? true, to: input.enabled },
-          { path: 'widget.assistant.respond', from: current.respond ?? false, to: input.respond },
+          { path: 'widget.assistant.respond', from: current.respond ?? true, to: input.respond },
         ],
       },
     })
@@ -320,50 +288,61 @@ export async function updateWidgetAssistantDeployment(
   return result
 }
 
+/**
+ * Client-safe widget projection. Shared by `getPublicWidgetConfig` and the
+ * workspace-settings payload so the iframe and `/api/widget/config.json`
+ * cannot drift.
+ */
+export function projectPublicWidgetConfig(
+  config: WidgetConfig,
+  flags: ReturnType<typeof resolveFeatureFlags>,
+  identity: AssistantIdentity = DEFAULT_ASSISTANT_CONFIG.identity
+): PublicWidgetConfig {
+  const tabs = {
+    feedback: (config.tabs?.feedback ?? true) && flags.feedback,
+    changelog: (config.tabs?.changelog ?? true) && flags.changelog,
+    help: (config.tabs?.help ?? false) && flags.helpCenter,
+    messenger: (config.tabs?.messenger ?? true) && flags.supportInbox,
+    tickets: (config.tabs?.tickets ?? true) && flags.supportTickets,
+    home: config.tabs?.home,
+  }
+  return {
+    enabled:
+      config.enabled &&
+      [tabs.feedback, tabs.changelog, tabs.help, tabs.messenger, tabs.tickets].some(Boolean),
+    defaultBoard: config.defaultBoard,
+    position: config.position,
+    launcherGreeting: config.launcherGreeting,
+    launcherLabel: config.launcherLabel,
+    tabs,
+    // Identify is verified-only (backend-signed ssoToken; GH issue #300).
+    hmacRequired: true,
+    // Home customisation is client-safe (greeting, hero style, quick links);
+    // the stored hero-image key is resolved to a public URL.
+    home: publicHomeConfig(config.home),
+    // Project only client-safe messenger fields; routing is agent-only.
+    // `enabled` mirrors the module flag — there is no separate messenger
+    // master switch; widget visibility is `tabs.messenger`.
+    messenger: {
+      ...publicMessengerConfig(config.messenger ?? DEFAULT_MESSENGER_CONFIG, identity),
+      enabled: flags.supportInbox,
+    },
+    // Per-locale messenger welcome/offline copy — client-safe.
+    translations: config.translations,
+  }
+}
+
 export async function getPublicWidgetConfig(): Promise<PublicWidgetConfig> {
   try {
     // Read-only + on public hot paths (config.json, widget SSR): cached row.
     const org = await requireSettingsCached()
-    const config = parseJsonConfig(org.widgetConfig, DEFAULT_WIDGET_CONFIG)
+    const config = parseWidgetConfig(org.widgetConfig)
     const assistantConfig = assistantConfigSchema.safeParse(org.assistantConfig)
     const identity = assistantConfig.success
       ? assistantConfig.data.identity
       : DEFAULT_ASSISTANT_CONFIG.identity
     const flags = resolveFeatureFlags(org.featureFlags)
-    const helpCenter = parseJsonConfig(org.helpCenterConfig, DEFAULT_HELP_CENTER_CONFIG)
-    const tabs = {
-      feedback: (config.tabs?.feedback ?? true) && flags.feedback,
-      changelog: (config.tabs?.changelog ?? false) && flags.changelog,
-      help: (config.tabs?.help ?? false) && flags.helpCenter && helpCenter.enabled,
-      messenger:
-        (config.tabs?.messenger ?? false) &&
-        flags.supportInbox &&
-        (config.messenger?.enabled ?? false),
-      // Converged Messages: ticket pairs surface through the messenger tab,
-      // gated by the supportTickets flag alone (there is no Tickets tab).
-      tickets: flags.supportTickets,
-      home: config.tabs?.home,
-    }
-    return {
-      enabled:
-        config.enabled &&
-        [tabs.feedback, tabs.changelog, tabs.help, tabs.messenger, tabs.tickets].some(Boolean),
-      defaultBoard: config.defaultBoard,
-      position: config.position,
-      launcherGreeting: config.launcherGreeting,
-      launcherLabel: config.launcherLabel,
-      tabs,
-      // Identify is verified-only (backend-signed ssoToken; GH issue #300).
-      hmacRequired: true,
-      // Home customisation is client-safe (greeting, hero style, quick links);
-      // the stored hero-image key is resolved to a public URL.
-      home: publicHomeConfig(config.home),
-      // Project only client-safe messenger fields; routing is agent-only.
-      messenger: publicMessengerConfig(config.messenger ?? DEFAULT_MESSENGER_CONFIG, identity),
-      // Per-locale copy overrides — client-safe (customer-facing strings the
-      // widget resolves against its own locale for the Home surface).
-      translations: config.translations,
-    }
+    return projectPublicWidgetConfig(config, flags, identity)
   } catch (error) {
     log.error({ err: error }, 'get public widget config failed')
     wrapDbError('fetch public widget config', error)
@@ -380,16 +359,18 @@ export async function getMessengerConfig(): Promise<MessengerConfig> {
 }
 
 /**
- * Whether messenger is enabled for this workspace. Gated first by the
- * experimental `supportInbox` feature flag (off by default); below it the
- * per-widget master + messenger toggles still apply. This is the single choke point the
- * widget-facing messenger paths (send, stream, visitor history) already consult, so
- * flipping the flag off fails them all closed.
+ * Whether the widget messenger surface is live. Gated first by the
+ * Support product flag (`supportInbox`, off by default); below it the
+ * widget master and the Messages tab still apply. The Messages tab defaults
+ * on; the widget master turns on when Support is enabled. This is the
+ * single choke point the widget-facing messenger paths (send, stream,
+ * visitor history) already consult, so flipping the flag off fails them all
+ * closed.
  */
 export async function isMessengerEnabled(): Promise<boolean> {
   const { isFeatureEnabled } = await import('./settings.service')
   const [flagOn, widget] = await Promise.all([isFeatureEnabled('supportInbox'), getWidgetConfig()])
-  return Boolean(flagOn && widget.enabled && widget.messenger?.enabled)
+  return isWidgetMessengerEnabled({ supportInbox: flagOn }, widget)
 }
 
 /**
@@ -449,6 +430,39 @@ export async function getWidgetSecret(): Promise<string | null> {
   } catch (error) {
     log.error({ err: error }, 'get widget secret failed')
     wrapDbError('fetch widget secret', error)
+  }
+}
+
+/**
+ * Admin-only: return the workspace signing secret, minting one if missing.
+ * Identify and other public paths must keep using {@link getWidgetSecret}.
+ */
+export async function ensureWidgetSecret(): Promise<string> {
+  log.debug('ensure widget secret')
+  try {
+    const org = await requireSettings()
+    if (org.widgetSecret) return org.widgetSecret
+
+    const secret = generateWidgetSecret()
+    const [updated] = await db
+      .update(settings)
+      .set({ widgetSecret: secret })
+      .where(and(eq(settings.id, org.id), isNull(settings.widgetSecret)))
+      .returning({ widgetSecret: settings.widgetSecret })
+    if (updated?.widgetSecret) {
+      log.info('minted widget secret')
+      await invalidateSettingsCache()
+      return updated.widgetSecret
+    }
+
+    const again = await requireSettings()
+    if (!again.widgetSecret) {
+      throw new Error('widget secret missing after ensure')
+    }
+    return again.widgetSecret
+  } catch (error) {
+    log.error({ err: error }, 'ensure widget secret failed')
+    wrapDbError('ensure widget secret', error)
   }
 }
 

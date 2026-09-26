@@ -89,8 +89,9 @@ export function StatusSyncConfig({
             Status sync
           </Label>
           <p className="text-xs text-muted-foreground">
-            Automatically update post statuses when issues change in{' '}
-            {integrationType.charAt(0).toUpperCase() + integrationType.slice(1).replace('_', ' ')}
+            Receive status changes from{' '}
+            {integrationType.charAt(0).toUpperCase() + integrationType.slice(1).replace('_', ' ')}.
+            Verified updates apply to linked posts. Other changes appear in Sync history for review.
           </p>
         </div>
         <Switch

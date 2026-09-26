@@ -57,6 +57,11 @@ import type { IncidentImpact } from './templates/status-incident-published'
 import { StatusMaintenanceScheduledEmail } from './templates/status-maintenance-scheduled'
 import { CsatRequestEmail } from './templates/csat-request'
 import { VerifyAddressEmail } from './templates/verify-address'
+export { setEmailPoweredByResolver } from './powered-by'
+export { setDefaultFromResolver, resetDefaultFromResolver } from './default-from'
+import { createElement } from 'react'
+import { EmailPoweredByProvider, resolveEmailPoweredBy } from './powered-by'
+import { resolvedDefaultFrom } from './default-from'
 
 /**
  * Get environment variable at runtime.
@@ -85,8 +90,8 @@ export class EmailConfigError extends Error {
   }
 }
 
-function getEmailFrom(): string {
-  const from = getEnv('EMAIL_FROM')
+export function getEmailFrom(): string {
+  const from = resolvedDefaultFrom() ?? getEnv('EMAIL_FROM')
   if (!from) {
     throw new EmailConfigError('EMAIL_FROM environment variable is required for sending emails')
   }
@@ -506,7 +511,14 @@ async function sendEmail(
     postId?: string | null
   } & ThreadingOptions
 ): Promise<EmailResult> {
-  return dispatch(options)
+  const showPoweredBy = await resolveEmailPoweredBy()
+  return dispatch({
+    ...options,
+    react: createElement(EmailPoweredByProvider, {
+      value: showPoweredBy,
+      children: options.react,
+    }),
+  })
 }
 
 /** A prerendered, custom-From email (no template). */
@@ -548,7 +560,7 @@ export async function sendInvitationEmail(params: SendInvitationParams): Promise
 
   return sendEmail({
     to,
-    subject: `برای پیوستن به ${workspaceName} در کوئک‌بک دعوت شده‌اید`,
+    subject: `You've been invited to join ${workspaceName} on Quackback`,
     react: InvitationEmail({
       invitedByName,
       inviteeName,
@@ -578,7 +590,7 @@ export async function sendPortalInviteEmail(params: SendPortalInviteParams): Pro
 
   return sendEmail({
     to,
-    subject: `برای دسترسی به ${workspaceName} دعوت شده‌اید`,
+    subject: `You've been invited to ${workspaceName}`,
     react: PortalInviteEmail({ workspaceName, inviteLink, logoUrl, personalMessage }),
     emailType: 'PortalInviteEmail',
     preview: { inviteLink },
@@ -602,7 +614,7 @@ export async function sendWelcomeEmail(params: SendWelcomeParams): Promise<Email
 
   return sendEmail({
     to,
-    subject: `به ${workspaceName} در کوئک‌بک خوش آمدید!`,
+    subject: `Welcome to ${workspaceName} on Quackback!`,
     react: WelcomeEmail({ name, workspaceName, dashboardUrl, logoUrl }),
     emailType: 'WelcomeEmail',
     preview: { dashboardUrl },
@@ -626,7 +638,7 @@ export async function sendMagicLinkEmail(params: SendMagicLinkParams): Promise<E
   log.debug('sending sign-in email')
   return sendEmail({
     to,
-    subject: 'پیوند ورود به حساب کوئک‌بک',
+    subject: 'Your Quackback sign-in link',
     react: MagicLinkEmail({ signInUrl, code, logoUrl }),
     emailType: 'MagicLinkEmail',
     preview: { signInUrl, code },
@@ -662,7 +674,7 @@ export async function sendSignupNotAllowedEmail(
   log.debug('sending sign-in refusal email')
   return sendEmail({
     to,
-    subject: 'درباره‌ی درخواست ورود شما به کوئک‌بک',
+    subject: 'About your Quackback sign-in request',
     react: SignupNotAllowedEmail({ workspaceName, logoUrl }),
     emailType: 'SignupNotAllowedEmail',
   })
@@ -686,7 +698,7 @@ export async function sendPasswordResetEmail(
   log.debug('sending password reset email')
   return sendEmail({
     to,
-    subject: 'بازیابی رمز عبور کوئک‌بک',
+    subject: 'Reset your Quackback password',
     react: PasswordResetEmail({ resetLink, logoUrl }),
     emailType: 'PasswordResetEmail',
     preview: { resetLink },
@@ -719,7 +731,7 @@ export async function sendRecoveryCodeUsedEmail(
   log.debug('sending recovery-code-used alert')
   return sendEmail({
     to,
-    subject: 'از کد بازیابی حساب شما استفاده شد',
+    subject: 'A recovery code on your account was just used',
     react: RecoveryCodeUsedEmail({ workspaceName, ipAddress, userAgent, occurredAt, logoUrl }),
     emailType: 'RecoveryCodeUsedEmail',
     preview: { occurredAt },
@@ -736,20 +748,43 @@ interface SendNewSignInParams {
   occurredAt: string
   ipAddress?: string | null
   userAgent?: string | null
+  location?: string | null
+  settingsUrl?: string | null
+  ssoEnforced?: boolean
   logoUrl?: string
 }
 
-/** First-sight new-device sign-in alert. Triggered by
+/** Additional-device sign-in alert. Triggered by
  * `handleNewDeviceNotification` after a successful sign-in lands on
- * an unseen (UA, /24 IP) combination. */
+ * an unseen signed device cookie for that account. IP and browser/OS
+ * are shown, not used as the claim key. */
 export async function sendNewSignInEmail(params: SendNewSignInParams): Promise<EmailResult> {
-  const { to, workspaceName, occurredAt, ipAddress, userAgent, logoUrl } = params
+  const {
+    to,
+    workspaceName,
+    occurredAt,
+    ipAddress,
+    userAgent,
+    location,
+    settingsUrl,
+    ssoEnforced,
+    logoUrl,
+  } = params
 
   log.debug('sending new-sign-in alert')
   return sendEmail({
     to,
-    subject: 'ورود جدید به حساب شما',
-    react: NewSignInEmail({ workspaceName, occurredAt, ipAddress, userAgent, logoUrl }),
+    subject: 'New sign-in to your account',
+    react: NewSignInEmail({
+      workspaceName,
+      occurredAt,
+      ipAddress,
+      userAgent,
+      location,
+      settingsUrl: ssoEnforced ? undefined : settingsUrl,
+      ssoEnforced,
+      logoUrl,
+    }),
     emailType: 'NewSignInEmail',
     preview: { occurredAt },
   })
@@ -788,7 +823,7 @@ export async function sendStatusChangeEmail(params: SendStatusChangeParams): Pro
 
   return sendEmail({
     to,
-    subject: `وضعیت بازخورد شما اکنون ${formattedNewStatus} است`,
+    subject: `Your feedback is now ${formattedNewStatus}!`,
     react: StatusChangeEmail({
       postTitle,
       postUrl,
@@ -837,7 +872,7 @@ export async function sendNewCommentEmail(params: SendNewCommentParams): Promise
 
   return sendEmail({
     to,
-    subject: `نظر جدید درباره‌ی «${postTitle}»`,
+    subject: `New comment on "${postTitle}"`,
     react: NewCommentEmail({
       postTitle,
       postUrl,
@@ -1122,22 +1157,22 @@ interface TicketEmailCopy {
  * facts (labels, names, times), never prose.
  */
 function ticketEventCopy(p: SendTicketEventEmailParams): TicketEmailCopy {
-  const requesterReason = `این ایمیل به این دلیل برای شما ارسال شده که تیکت ${p.ticketLabel} را در ${p.workspaceName} ایجاد کرده‌اید.`
+  const requesterReason = `You're receiving this because you opened ticket ${p.ticketLabel} at ${p.workspaceName}.`
   switch (p.kind) {
     case 'created':
       return {
-        subject: `تیکت شما دریافت شد؛ ${p.ticketLabel}: ${p.title}`,
-        heading: 'تیکت شما دریافت شد',
-        intro: `تیکت ${p.ticketLabel} با عنوان «${p.title}» در اختیار تیم ${p.workspaceName} است. به‌محض دریافت پاسخ، از طریق ایمیل به شما اطلاع می‌دهیم.`,
-        ctaLabel: 'مشاهده‌ی تیکت',
+        subject: `We received your ticket ${p.ticketLabel}: ${p.title}`,
+        heading: "We've got your ticket",
+        intro: `Your ticket ${p.ticketLabel} "${p.title}" is with the ${p.workspaceName} team. We'll email you as soon as there's a reply.`,
+        ctaLabel: 'View your ticket',
         reason: requesterReason,
       }
     case 'reply':
       return {
-        subject: `پاسخ جدید به ${p.ticketLabel}: ${p.title}`,
-        heading: 'پاسخ جدید به تیکت شما',
-        intro: `${p.authorName ?? 'تیم پشتیبانی'} به ${p.ticketLabel} با عنوان «${p.title}» پاسخ داده است:`,
-        ctaLabel: 'مشاهده‌ی تیکت',
+        subject: `New reply on ${p.ticketLabel}: ${p.title}`,
+        heading: 'New reply on your ticket',
+        intro: `${p.authorName ?? 'The team'} replied to ${p.ticketLabel} "${p.title}":`,
+        ctaLabel: 'View your ticket',
         reason: requesterReason,
       }
     case 'status_resolved':
@@ -1146,83 +1181,57 @@ function ticketEventCopy(p: SendTicketEventEmailParams): TicketEmailCopy {
       // customer story for a won't-do close is a plain close.
       if (p.closedGeneric) {
         return {
-          subject: `تیکت ${p.ticketLabel} بسته شد`,
-          heading: 'تیکت شما بسته شد',
-          intro: `${p.workspaceName} تیکت ${p.ticketLabel} با عنوان «${p.title}» را بسته است.`,
-          note: 'اگر پیگیری دیگری دارید، به رشته‌ی تیکت پاسخ دهید؛ پاسخ‌دادن آن را دوباره باز می‌کند.',
-          ctaLabel: 'مشاهده‌ی تیکت',
+          subject: `Your ticket ${p.ticketLabel} was closed`,
+          heading: 'Your ticket was closed',
+          intro: `${p.ticketLabel} "${p.title}" has been closed by the ${p.workspaceName} team.`,
+          note: 'If you have a follow-up, reply on the ticket thread — replying reopens it.',
+          ctaLabel: 'View your ticket',
           reason: requesterReason,
         }
       }
       return {
-        subject: `تیکت ${p.ticketLabel} حل شد`,
-        heading: 'تیکت شما حل شد',
-        intro: `تیم ${p.workspaceName} تیکت ${p.ticketLabel} با عنوان «${p.title}» را حل‌شده علامت‌گذاری کرده است.`,
-        note: 'اگر مشکل برای شما برطرف نشده است، به رشته‌ی تیکت پاسخ دهید؛ پاسخ‌دادن آن را دوباره باز می‌کند.',
-        ctaLabel: 'مشاهده‌ی تیکت',
+        subject: `Your ticket ${p.ticketLabel} was resolved`,
+        heading: 'Your ticket was resolved',
+        intro: `${p.ticketLabel} "${p.title}" has been marked resolved by the ${p.workspaceName} team.`,
+        note: "Reply on the ticket thread if this isn't fixed for you; replying reopens it.",
+        ctaLabel: 'View your ticket',
         reason: requesterReason,
       }
     case 'assigned':
       return {
-        subject: `تیکت ${p.ticketLabel} به شما اختصاص داده شد`,
-        heading: 'تیکتی به شما اختصاص داده شد',
-        intro: `تیکت ${p.ticketLabel} با عنوان «${p.title}» به شما اختصاص داده شد.`,
-        ctaLabel: 'بازکردن صندوق ورودی',
-        reason: 'این ایمیل به این دلیل برای شما ارسال شده که این تیکت به شما اختصاص داده شده است.',
+        subject: `Ticket ${p.ticketLabel} assigned to you`,
+        heading: 'You were assigned a ticket',
+        intro: `${p.ticketLabel} "${p.title}" was assigned to you.`,
+        ctaLabel: 'Open in inbox',
+        reason: "You're receiving this because the ticket was assigned to you.",
       }
     case 'assigned_team':
       return {
-        subject: `تیکت ${p.ticketLabel} به تیم شما اختصاص داده شد`,
-        heading: 'تیکتی به تیم شما اختصاص داده شد',
-        intro: `تیکت ${p.ticketLabel} با عنوان «${p.title}» به تیم شما اختصاص داده شد.`,
-        ctaLabel: 'بازکردن صندوق ورودی',
-        reason: 'این ایمیل به این دلیل برای شما ارسال شده که این تیکت به تیم شما اختصاص داده شده است.',
+        subject: `Ticket ${p.ticketLabel} assigned to your team`,
+        heading: 'A ticket was assigned to your team',
+        intro: `${p.ticketLabel} "${p.title}" was assigned to your team.`,
+        ctaLabel: 'Open in inbox',
+        reason: "You're receiving this because the ticket was assigned to your team.",
       }
     case 'sla_warning':
       return {
-        subject: `هشدار مهلت پاسخ: ${persianClockLabel(p.clockLabel)} تا ${persianDueLabel(p.dueLabel)}`,
-        heading: `نزدیک‌شدن مهلت ${persianClockLabel(p.clockLabel)}`,
-        intro: `گفتگو با ${p.title} به ${persianClockLabel(p.clockLabel)} به‌زودی نیاز دارد.`,
-        factLine: `${persianClockLabel(p.clockLabel)} تا ${persianDueLabel(p.dueLabel)} مهلت دارد`,
-        ctaLabel: 'بازکردن صندوق ورودی',
-        reason: 'این ایمیل به این دلیل برای شما ارسال شده که مسئول این گفتگو هستید.',
+        subject: `SLA at risk: ${p.clockLabel ?? 'response'} due ${p.dueLabel ?? 'soon'}`,
+        heading: `${capitalize(p.clockLabel ?? 'Response')} SLA approaching breach`,
+        intro: `The conversation with ${p.title} needs a ${p.clockLabel ?? 'response'} soon.`,
+        factLine: `${capitalize(p.clockLabel ?? 'Response')} due ${p.dueLabel ?? 'soon'}`,
+        ctaLabel: 'Open in inbox',
+        reason: "You're receiving this because you're responsible for this conversation.",
       }
     case 'sla_breach':
       return {
-        subject: `مهلت ${persianClockLabel(p.clockLabel)} برای ${p.title} سپری شد`,
-        heading: `مهلت ${persianClockLabel(p.clockLabel)} سپری شد`,
-        intro: `گفتگو با ${p.title} از مهلت تعیین‌شده‌ی ${persianClockLabel(p.clockLabel)} عبور کرده است.`,
-        factLine: `مهلت ${persianClockLabel(p.clockLabel)} در ${persianDueLabel(p.dueLabel, 'گذشته')} بوده است`,
-        ctaLabel: 'بازکردن صندوق ورودی',
-        reason: 'این ایمیل به این دلیل برای شما ارسال شده که مسئول این گفتگو هستید.',
+        subject: `SLA breached: ${p.clockLabel ?? 'response'} for ${p.title}`,
+        heading: `${capitalize(p.clockLabel ?? 'Response')} SLA breached`,
+        intro: `The conversation with ${p.title} has passed its ${p.clockLabel ?? 'response'} target.`,
+        factLine: `${capitalize(p.clockLabel ?? 'Response')} was due ${p.dueLabel ?? 'earlier'}`,
+        ctaLabel: 'Open in inbox',
+        reason: "You're receiving this because you're responsible for this conversation.",
       }
   }
-}
-
-function persianClockLabel(label: string | null | undefined): string {
-  const key = (label ?? 'response').trim().toLowerCase().replace(/[_-]+/g, ' ')
-  const labels: Record<string, string> = {
-    response: 'پاسخ',
-    'first response': 'پاسخ اولیه',
-    resolution: 'حل مسئله',
-    resolve: 'حل مسئله',
-  }
-  return labels[key] ?? label ?? 'پاسخ'
-}
-
-function persianDueLabel(label: string | null | undefined, fallback = 'به‌زودی'): string {
-  const value = (label ?? '').trim()
-  const match = value.match(/^in\s+(\d+)\s+(minute|minutes|hour|hours|day|days)$/i)
-  if (!match) return value.replace(/^in\s+/i, '') || fallback
-  const units: Record<string, string> = {
-    minute: 'دقیقه',
-    minutes: 'دقیقه',
-    hour: 'ساعت',
-    hours: 'ساعت',
-    day: 'روز',
-    days: 'روز',
-  }
-  return `${match[1].replace(/\d/g, (digit) => '۰۱۲۳۴۵۶۷۸۹'[Number(digit)])} ${units[match[2].toLowerCase()]} دیگر`
 }
 
 function capitalize(s: string): string {
@@ -1355,11 +1364,11 @@ export async function sendNoteMentionEmail(args: SendNoteMentionEmailArgs): Prom
     references,
   } = args
 
-  const displayName = authorName || 'یکی از هم‌تیمی‌ها'
+  const displayName = authorName || 'A teammate'
 
   return sendEmail({
     to,
-    subject: `${displayName} شما را در یک یادداشت داخلی ذکر کرده است`,
+    subject: `${displayName} mentioned you in an internal note`,
     react: NoteMentionEmail({
       authorName,
       preview,
@@ -1416,7 +1425,7 @@ export async function sendChangelogPublishedEmail(
 
   return sendEmail({
     to,
-    subject: `به‌روزرسانی جدید: ${changelogTitle}`,
+    subject: `New update: ${changelogTitle}`,
     react: ChangelogPublishedEmail({
       changelogTitle,
       changelogUrl,
@@ -1466,7 +1475,7 @@ export async function sendFeedbackLinkedEmail(
 
   return sendEmail({
     to,
-    subject: `بازخورد شما به «${postTitle}» مرتبط شده است`,
+    subject: `Your feedback has been linked to "${postTitle}"`,
     react: FeedbackLinkedEmail({
       recipientName,
       postTitle,
@@ -1520,7 +1529,7 @@ export async function sendStatusIncidentPublishedEmail(
 
   return sendEmail({
     to,
-    subject: `رخداد: ${incidentTitle}`,
+    subject: `Incident: ${incidentTitle}`,
     react: StatusIncidentPublishedEmail({
       workspaceName,
       incidentTitle,
@@ -1578,7 +1587,7 @@ export async function sendStatusMaintenanceScheduledEmail(
 
   return sendEmail({
     to,
-    subject: `تعمیر و نگهداری زمان‌بندی‌شده: ${maintenanceTitle}`,
+    subject: `Scheduled maintenance: ${maintenanceTitle}`,
     react: StatusMaintenanceScheduledEmail({
       workspaceName,
       maintenanceTitle,
@@ -1635,7 +1644,7 @@ export async function sendCsatRequestEmail(
 
   return sendEmail({
     to,
-    subject: 'عملکرد ما چطور بود؟',
+    subject: 'How did we do?',
     react: CsatRequestEmail({ promptText, ratingUrls, workspaceName, logoUrl }),
     from,
     conversationId,
@@ -1675,7 +1684,7 @@ export {
   teamAlertSubject,
 } from './conversation-copy'
 export { ConversationClosedEmail } from './templates/conversation-closed'
-export { EMAIL_BILLABLE, isEmailBillable } from './mail-class'
+export { EMAIL_BILLABLE, METERED_EMAIL_TYPES, isEmailBillable } from './mail-class'
 
 // ============================================================================
 // Address verification (add or change)
@@ -1700,7 +1709,7 @@ export async function sendVerifyAddressEmail(
   log.debug('sending address verification code')
   return sendEmail({
     to,
-    subject: 'تأیید نشانی ایمیل',
+    subject: 'Confirm your email address',
     react: VerifyAddressEmail({ code, workspaceName, logoUrl }),
     emailType: 'VerifyAddressEmail',
   })

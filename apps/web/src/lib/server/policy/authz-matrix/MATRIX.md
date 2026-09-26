@@ -100,7 +100,7 @@ Profiles: **Owner** = admin class + an admin-owned full API key (scoped keys hol
 
 ## 2. Surfaces and their enforced authorization
 
-### Server functions (`requireAuth`) — 669 surfaces
+### Server functions (`requireAuth`) — 714 surfaces
 
 | Surface | Enforces |
 | --- | --- |
@@ -116,7 +116,10 @@ Profiles: **Owner** = admin class + an admin-owned full API key (scoped keys hol
 | `integrations/discord/server/functions.ts`::fetchDiscordChannelsFn | integration.manage |
 | `integrations/freshdesk/server/functions.ts`::saveFreshdeskKeyFn | integration.manage |
 | `integrations/github/server/functions.ts`::getGitHubConnectUrl | integration.manage |
+| `integrations/github/server/functions.ts`::getGitHubChannelStatusFn | settings.manage |
+| `integrations/github/server/functions.ts`::setGitHubInboxEnabledFn | channel_account.manage |
 | `integrations/github/server/functions.ts`::fetchGitHubReposFn | integration.manage |
+| `integrations/github/server/functions.ts`::retryGitHubAgentMessageFn | conversation.reply |
 | `integrations/gitlab/server/functions.ts`::getGitLabConnectUrl | integration.manage |
 | `integrations/gitlab/server/functions.ts`::fetchGitLabProjectsFn | integration.manage |
 | `integrations/hubspot/server/functions.ts`::getHubSpotConnectUrl | integration.manage |
@@ -138,6 +141,8 @@ Profiles: **Owner** = admin class + an admin-owned full API key (scoped keys hol
 | `integrations/salesforce/server/functions.ts`::getSalesforceConnectUrl | integration.manage |
 | `integrations/shortcut/server/functions.ts`::saveShortcutTokenFn | integration.manage |
 | `integrations/shortcut/server/functions.ts`::fetchShortcutProjectsFn | integration.manage |
+| `integrations/slack/server/agent/settings.ts`::getSlackAgentSettingsFn | assistant.manage |
+| `integrations/slack/server/agent/settings.ts`::setSlackAssistantEnabledFn | assistant.manage |
 | `integrations/slack/server/functions.ts`::getSlackConnectUrl | integration.manage |
 | `integrations/slack/server/functions.ts`::fetchSlackChannelsFn | integration.manage |
 | `integrations/stripe/server/functions.ts`::saveStripeKeyFn | integration.manage |
@@ -159,6 +164,7 @@ Profiles: **Owner** = admin class + an admin-owned full API key (scoped keys hol
 | `lib/server/functions/activation.ts`::completeStartingPointFn | settings.manage |
 | `lib/server/functions/activation.ts`::acknowledgeActivationHandoffFn | settings.manage |
 | `lib/server/functions/activity.ts`::fetchActivityForPost | post.view_private |
+| `lib/server/functions/admin-overview.ts`::fetchAdminOverviewFn | END_USER (any authenticated) |
 | `lib/server/functions/admin-reset-two-factor.ts`::adminResetTwoFactorFn | auth.manage |
 | `lib/server/functions/admin.ts`::fetchInboxPosts | post.view_private |
 | `lib/server/functions/admin.ts`::fetchTagsList | tag.view |
@@ -196,10 +202,6 @@ Profiles: **Owner** = admin class + an admin-owned full API key (scoped keys hol
 | `lib/server/functions/admin.ts`::removeUsersFromSegmentFn | segment.manage |
 | `lib/server/functions/admin.ts`::evaluateSegmentFn | segment.manage |
 | `lib/server/functions/admin.ts`::evaluateAllSegmentsFn | segment.manage |
-| `lib/server/functions/admin.ts`::listUserAttributesFn | user_attribute.view |
-| `lib/server/functions/admin.ts`::createUserAttributeFn | user_attribute.manage |
-| `lib/server/functions/admin.ts`::updateUserAttributeFn | user_attribute.manage |
-| `lib/server/functions/admin.ts`::deleteUserAttributeFn | user_attribute.manage |
 | `lib/server/functions/analytics.ts`::getAnalyticsData | analytics.view |
 | `lib/server/functions/api-keys.ts`::fetchApiKeys | api_key.manage |
 | `lib/server/functions/api-keys.ts`::fetchApiKey | api_key.manage |
@@ -258,12 +260,20 @@ Profiles: **Owner** = admin class + an admin-owned full API key (scoped keys hol
 | `lib/server/functions/auth-provider-credentials.ts`::fetchAuthProviderStatusFn | auth.manage |
 | `lib/server/functions/billing.ts`::fetchBillingOverviewFn | billing.manage |
 | `lib/server/functions/billing.ts`::fetchBillingCatalogueFn | END_USER (any authenticated) |
+| `lib/server/functions/billing.ts`::fetchUpgradeContextFn | END_USER (any authenticated) |
 | `lib/server/functions/billing.ts`::fetchBillingInvoicesFn | billing.manage |
 | `lib/server/functions/billing.ts`::fetchPlanUsageFn | billing.manage |
+| `lib/server/functions/billing.ts`::fetchDowngradePreviewFn | billing.manage |
+| `lib/server/functions/billing.ts`::fetchFreeDowngradePreviewFn | billing.manage |
+| `lib/server/functions/billing.ts`::fetchPendingDowngradeFn | billing.manage |
+| `lib/server/functions/billing.ts`::beginPlanDowngradeFn | billing.manage |
+| `lib/server/functions/billing.ts`::cancelPlanDowngradeFn | billing.manage |
+| `lib/server/functions/billing.ts`::shouldLockAdminToBillingFn | END_USER (any authenticated) |
 | `lib/server/functions/blocking.ts`::getPersonBlockStatusFn | people.view |
 | `lib/server/functions/blocking.ts`::blockPersonFn | people.manage |
 | `lib/server/functions/blocking.ts`::unblockPersonFn | people.manage |
 | `lib/server/functions/boards.ts`::fetchBoardsFn | board.manage |
+| `lib/server/functions/boards.ts`::fetchBoardsWithCountsFn | board.manage |
 | `lib/server/functions/boards.ts`::fetchBoardFn | board.manage |
 | `lib/server/functions/boards.ts`::createBoardFn | board.manage |
 | `lib/server/functions/boards.ts`::updateBoardFn | board.manage |
@@ -324,10 +334,10 @@ Profiles: **Owner** = admin class + an admin-owned full API key (scoped keys hol
 | `lib/server/functions/companies.ts`::attachPrincipalToCompanyFn | company.manage |
 | `lib/server/functions/companies.ts`::detachPrincipalFromCompanyFn | company.manage |
 | `lib/server/functions/companies.ts`::qualifyCompanyFn | company.manage |
-| `lib/server/functions/companies.ts`::listCompanyAttributesFn | company.view |
-| `lib/server/functions/companies.ts`::createCompanyAttributeFn | company.manage |
-| `lib/server/functions/companies.ts`::updateCompanyAttributeFn | company.manage |
-| `lib/server/functions/companies.ts`::deleteCompanyAttributeFn | company.manage |
+| `lib/server/functions/company-attributes.ts`::listCompanyAttributesFn | company.view |
+| `lib/server/functions/company-attributes.ts`::createCompanyAttributeFn | company.manage |
+| `lib/server/functions/company-attributes.ts`::updateCompanyAttributeFn | company.manage |
+| `lib/server/functions/company-attributes.ts`::deleteCompanyAttributeFn | company.manage |
 | `lib/server/functions/contact-email.ts`::getEmailChangeStateFn | END_USER (any authenticated) |
 | `lib/server/functions/contact-email.ts`::sendCurrentAddressCodeFn | END_USER (any authenticated) |
 | `lib/server/functions/contact-email.ts`::requestEmailChangeFn | END_USER (any authenticated) |
@@ -367,6 +377,7 @@ Profiles: **Owner** = admin class + an admin-owned full API key (scoped keys hol
 | `lib/server/functions/conversation.ts`::submitCsatFn | END_USER (any authenticated) |
 | `lib/server/functions/conversation.ts`::setAgentAvailabilityFn | conversation.view |
 | `lib/server/functions/conversation.ts`::mintConversationStreamTokenFn | END_USER (any authenticated) |
+| `lib/server/functions/conversation.ts`::editConversationMessageFn | DYNAMIC (conversation.reply | conversation.note | ticket.reply | ticket.note) |
 | `lib/server/functions/conversation.ts`::deleteConversationMessageFn | END_USER (any authenticated) |
 | `lib/server/functions/conversation.ts`::listConversationsFn | conversation.view |
 | `lib/server/functions/conversation.ts`::fetchAssistantInboxCountsFn | conversation.view |
@@ -448,11 +459,17 @@ Profiles: **Owner** = admin class + an admin-owned full API key (scoped keys hol
 | `lib/server/functions/inbox.ts`::fetchInboxCountsFn | DYNAMIC (conversation.view | conversation.view_all | ticket.view | ticket.view_all) |
 | `lib/server/functions/inbox.ts`::getConversationTicketLinkFn | conversation.view |
 | `lib/server/functions/integration-destinations.ts`::fetchIntegrationDestinationsFn | integration.manage |
+| `lib/server/functions/integration-sync.ts`::listIntegrationSyncHistoryFn | integration.view |
+| `lib/server/functions/integration-sync.ts`::inspectIntegrationSyncFn | integration.view |
+| `lib/server/functions/integration-sync.ts`::recoverIntegrationSyncFn | integration.manage |
+| `lib/server/functions/integration-sync.ts`::verifyIntegrationSyncReferenceFn | integration.manage |
 | `lib/server/functions/integrations.ts`::updateIntegrationFn | integration.manage |
 | `lib/server/functions/integrations.ts`::deleteIntegrationFn | integration.manage |
 | `lib/server/functions/integrations.ts`::addNotificationChannelFn | integration.manage |
 | `lib/server/functions/integrations.ts`::updateNotificationChannelFn | integration.manage |
 | `lib/server/functions/integrations.ts`::removeNotificationChannelFn | integration.manage |
+| `lib/server/functions/labs.ts`::listVisibleLabsExperimentsFn | settings.manage |
+| `lib/server/functions/labs.ts`::setWorkspaceExperimentEnabledFn | settings.manage |
 | `lib/server/functions/link-preview.ts`::unfurlLinkFn | END_USER (any authenticated) |
 | `lib/server/functions/macros.ts`::listMacrosFn | conversation.reply |
 | `lib/server/functions/macros.ts`::createMacroFn | conversation.manage |
@@ -478,6 +495,7 @@ Profiles: **Owner** = admin class + an admin-owned full API key (scoped keys hol
 | `lib/server/functions/notifications.ts`::archiveAllReadNotificationsFn | END_USER (any authenticated) |
 | `lib/server/functions/onboarding.ts`::saveWorkspaceAndGoalFn | ADMIN-ONLY |
 | `lib/server/functions/onboarding.ts`::saveCloudOnboardingGoalFn | ADMIN-ONLY |
+| `lib/server/functions/onboarding.ts`::ensureOnboardingHomeReadyFn | ADMIN-ONLY |
 | `lib/server/functions/owner-workspaces.ts`::listOwnerWorkspacesFn | settings.manage |
 | `lib/server/functions/owner-workspaces.ts`::openOwnerWorkspaceFn | settings.manage |
 | `lib/server/functions/ownership.ts`::getCloudOwnerEmailFn | END_USER (any authenticated) |
@@ -521,6 +539,7 @@ Profiles: **Owner** = admin class + an admin-owned full API key (scoped keys hol
 | `lib/server/functions/posts.ts`::setPostEtaFn | post.set_eta |
 | `lib/server/functions/posts.ts`::deletePostFn | post.delete |
 | `lib/server/functions/posts.ts`::fetchPostExternalLinksFn | post.view_private |
+| `lib/server/functions/posts.ts`::retryPostIntegrationSyncFn | integration.manage |
 | `lib/server/functions/posts.ts`::changePostStatusFn | post.set_status |
 | `lib/server/functions/posts.ts`::changePostBoardFn | post.set_board |
 | `lib/server/functions/posts.ts`::restorePostFn | post.delete |
@@ -558,14 +577,12 @@ Profiles: **Owner** = admin class + an admin-owned full API key (scoped keys hol
 | `lib/server/functions/settings.ts`::updateThemeFn | settings.branding |
 | `lib/server/functions/settings.ts`::updatePortalConfigFn | settings.manage |
 | `lib/server/functions/settings.ts`::updateAuthConfigFn | auth.manage |
-| `lib/server/functions/settings.ts`::saveLogoKeyFn | settings.branding |
-| `lib/server/functions/settings.ts`::deleteLogoFn | settings.branding |
+| `lib/server/functions/settings.ts`::saveLogoKeyFn | settings.manage |
+| `lib/server/functions/settings.ts`::deleteLogoFn | settings.manage |
 | `lib/server/functions/settings.ts`::saveHeaderLogoKeyFn | settings.branding |
 | `lib/server/functions/settings.ts`::deleteHeaderLogoFn | settings.branding |
-| `lib/server/functions/settings.ts`::savePortalOgImageKeyFn | settings.branding |
-| `lib/server/functions/settings.ts`::deletePortalOgImageFn | settings.branding |
-| `lib/server/functions/settings.ts`::saveFaviconKeyFn | settings.branding |
-| `lib/server/functions/settings.ts`::deleteFaviconFn | settings.branding |
+| `lib/server/functions/settings.ts`::saveFaviconKeyFn | settings.manage |
+| `lib/server/functions/settings.ts`::deleteFaviconFn | settings.manage |
 | `lib/server/functions/settings.ts`::updateHeaderDisplayModeFn | settings.branding |
 | `lib/server/functions/settings.ts`::updateHeaderDisplayNameFn | settings.branding |
 | `lib/server/functions/settings.ts`::updateWorkspaceNameFn | settings.branding |
@@ -574,10 +591,10 @@ Profiles: **Owner** = admin class + an admin-owned full API key (scoped keys hol
 | `lib/server/functions/settings.ts`::fetchWidgetConfig | settings.manage |
 | `lib/server/functions/settings.ts`::fetchWidgetSecret | settings.manage |
 | `lib/server/functions/settings.ts`::updateWidgetConfigFn | settings.manage |
-| `lib/server/functions/settings.ts`::configureWidgetForActivationFn | settings.manage |
 | `lib/server/functions/settings.ts`::saveWidgetHeroImageKeyFn | settings.manage |
 | `lib/server/functions/settings.ts`::deleteWidgetHeroImageFn | settings.manage |
 | `lib/server/functions/settings.ts`::regenerateWidgetSecretFn | settings.manage |
+| `lib/server/functions/settings.ts`::mintWidgetInstallCodeFn | settings.manage |
 | `lib/server/functions/settings.ts`::fetchOfficeHoursFn | office_hours.manage |
 | `lib/server/functions/settings.ts`::fetchConversationRoutingFn | settings.manage |
 | `lib/server/functions/settings.ts`::updateConversationRoutingFn | settings.manage |
@@ -611,7 +628,10 @@ Profiles: **Owner** = admin class + an admin-owned full API key (scoped keys hol
 | `lib/server/functions/sso.ts`::getVerifiedDomainsFn | auth.manage |
 | `lib/server/functions/sso.ts`::listIdentityProvidersFn | auth.manage |
 | `lib/server/functions/sso.ts`::upsertIdentityProviderFn | auth.manage |
+| `lib/server/functions/sso.ts`::saveIdentityProviderClaimMappingFn | auth.manage |
 | `lib/server/functions/sso.ts`::deleteIdentityProviderFn | auth.manage |
+| `lib/server/functions/sso.ts`::saveIdentityProviderLogoFn | auth.manage |
+| `lib/server/functions/sso.ts`::deleteIdentityProviderLogoFn | auth.manage |
 | `lib/server/functions/sso.ts`::setProviderCredentialsFn | auth.manage |
 | `lib/server/functions/sso.ts`::addProviderDomainFn | auth.manage |
 | `lib/server/functions/sso.ts`::verifyProviderDomainFn | auth.manage |
@@ -746,17 +766,42 @@ Profiles: **Owner** = admin class + an admin-owned full API key (scoped keys hol
 | `lib/server/functions/uploads.ts`::getLogoUploadUrlFn | settings.manage |
 | `lib/server/functions/uploads.ts`::getFaviconUploadUrlFn | settings.manage |
 | `lib/server/functions/uploads.ts`::getHeaderLogoUploadUrlFn | settings.manage |
-| `lib/server/functions/uploads.ts`::getPortalOgImageUploadUrlFn | settings.manage |
+| `lib/server/functions/uploads.ts`::getIdentityProviderLogoUploadUrlFn | auth.manage |
 | `lib/server/functions/uploads.ts`::getWidgetHeroUploadUrlFn | settings.manage |
 | `lib/server/functions/uploads.ts`::getAvatarUploadUrlFn | END_USER (any authenticated) |
 | `lib/server/functions/uploads.ts`::getAssistantAvatarUploadUrlFn | assistant.manage |
+| `lib/server/functions/user-attributes.ts`::listUserAttributesFn | user_attribute.view |
+| `lib/server/functions/user-attributes.ts`::createUserAttributeFn | user_attribute.manage |
+| `lib/server/functions/user-attributes.ts`::updateUserAttributeFn | user_attribute.manage |
+| `lib/server/functions/user-attributes.ts`::deleteUserAttributeFn | user_attribute.manage |
 | `lib/server/functions/user.ts`::requirePrincipalId | END_USER (any authenticated) |
+| `lib/server/functions/user.ts`::updateNotificationPreferencesFn | END_USER (any authenticated) |
 | `lib/server/functions/visitor-analytics.ts`::getVisitorAnalyticsData | analytics.view |
 | `lib/server/functions/webhooks.ts`::fetchWebhooks | webhook.view |
 | `lib/server/functions/webhooks.ts`::createWebhookFn | webhook.manage |
 | `lib/server/functions/webhooks.ts`::updateWebhookFn | webhook.manage |
 | `lib/server/functions/webhooks.ts`::deleteWebhookFn | webhook.manage |
 | `lib/server/functions/webhooks.ts`::rotateWebhookSecretFn | webhook.manage |
+| `lib/server/functions/widget/comments.ts`::widgetCreateCommentFn | END_USER (any authenticated) |
+| `lib/server/functions/widget/comments.ts`::widgetAddReactionFn | END_USER (any authenticated) |
+| `lib/server/functions/widget/comments.ts`::widgetRemoveReactionFn | END_USER (any authenticated) |
+| `lib/server/functions/widget/conversation.ts`::widgetSendConversationMessageFn | END_USER (any authenticated) |
+| `lib/server/functions/widget/conversation.ts`::widgetListConversationMessagesFn | END_USER (any authenticated) |
+| `lib/server/functions/widget/conversation.ts`::widgetMarkConversationReadFn | END_USER (any authenticated) |
+| `lib/server/functions/widget/conversation.ts`::widgetSendConversationTypingFn | END_USER (any authenticated) |
+| `lib/server/functions/widget/conversation.ts`::widgetSubmitCsatFn | END_USER (any authenticated) |
+| `lib/server/functions/widget/conversation.ts`::widgetMintConversationStreamTokenFn | END_USER (any authenticated) |
+| `lib/server/functions/widget/posts.ts`::widgetCreatePublicPostFn | END_USER (any authenticated) |
+| `lib/server/functions/widget/posts.ts`::widgetToggleVoteFn | END_USER (any authenticated) |
+| `lib/server/functions/widget/tickets.ts`::widgetGetMyTicketsFn | END_USER (any authenticated) |
+| `lib/server/functions/widget/tickets.ts`::widgetGetMyTicketStageLabelsFn | END_USER (any authenticated) |
+| `lib/server/functions/widget/tickets.ts`::widgetGetMyTicketFormFn | END_USER (any authenticated) |
+| `lib/server/functions/widget/tickets.ts`::widgetGetMyTicketWatchStatusFn | END_USER (any authenticated) |
+| `lib/server/functions/widget/tickets.ts`::widgetGetConversationLinkedTicketFn | END_USER (any authenticated) |
+| `lib/server/functions/widget/tickets.ts`::widgetCreateMyTicketFn | END_USER (any authenticated) |
+| `lib/server/functions/widget/tickets.ts`::widgetWatchMyTicketFn | END_USER (any authenticated) |
+| `lib/server/functions/widget/tickets.ts`::widgetUnwatchMyTicketFn | END_USER (any authenticated) |
+| `lib/server/functions/widget/user.ts`::widgetGetUserStatsFn | END_USER (any authenticated) |
 | `lib/server/functions/workflow-reporting.ts`::workflowEffectivenessFn | routing.manage |
 | `lib/server/functions/workflow-reporting.ts`::workflowRunsFn | routing.manage |
 | `lib/server/functions/workflow-reporting.ts`::workflowRunTimelineFn | routing.manage |
@@ -779,6 +824,7 @@ Profiles: **Owner** = admin class + an admin-owned full API key (scoped keys hol
 | Surface | Enforces |
 | --- | --- |
 | `routes/api/billing/session.ts`::POST | billing.manage |
+| `routes/api/billing/trial.ts`::POST | billing.manage |
 | `routes/api/export.companies.ts`::GET | company.view |
 | `routes/api/export.users.ts`::handleExportUsers | people.view |
 | `routes/api/v1/apps/boards.ts`::GET | PUBLIC (any valid key) |
@@ -902,7 +948,6 @@ Profiles: **Owner** = admin class + an admin-owned full API key (scoped keys hol
 | `routes/api/v1/webhooks/$webhookId.ts`::DELETE | webhook.manage |
 | `routes/api/v1/webhooks/index.ts`::GET | webhook.view |
 | `routes/api/v1/webhooks/index.ts`::POST | webhook.manage |
-| `routes/api/widget/identify.ts`::POST | TEAM-ONLY |
 
 ### Session-authenticated routes (`requireAuth`) — 1 surface
 
@@ -924,7 +969,7 @@ Profiles: **Owner** = admin class + an admin-owned full API key (scoped keys hol
 
 ## 3. MCP tools
 
-38 tools. "Team" = requires an admin/member role in addition to the scope.
+39 tools. "Team" = requires an admin/member role in addition to the scope.
 
 | Tool | Scope(s) | Team |
 | --- | --- | :---: |
@@ -966,6 +1011,7 @@ Profiles: **Owner** = admin class + an admin-owned full API key (scoped keys hol
 | update_changelog | write:changelog | ✓ |
 | update_comment | write:feedback | · |
 | vote_post | write:feedback | · |
+| widget_install_status | read:feedback | ✓ |
 
 ### MCP scope holdings by class
 
@@ -979,7 +1025,7 @@ Key scopes are enforced: an API key holds exactly its stored scopes (owner permi
 
 ## 4. Entry points without a requireAuth/key gate
 
-190 of 970 entry points hold no `requireAuth` / `withApiKeyAuth` / `requireTeamAuth` gate.
+217 of 1042 entry points hold no `requireAuth` / `withApiKeyAuth` / `requireTeamAuth` gate.
 Each is expected to be intentionally public, a pre-auth flow, a signature-verified webhook, or a handler that delegates auth (e.g. the MCP route).
 **Adding a row here is an access-control change** — confirm the new entry point is meant to be reachable without a gate.
 
@@ -1009,8 +1055,10 @@ Each is expected to be intentionally public, a pre-auth flow, a signature-verifi
 | `lib/server/functions/entitlement-status.ts`::listEntitlementsFn | server-fn |
 | `lib/server/functions/help-center-redirect-rules.ts`::resolveHelpCenterRedirectFn | server-fn |
 | `lib/server/functions/help-center.ts`::getPublicArticleBySlugFn | server-fn |
+| `lib/server/functions/help-center.ts`::getPublicArticlePageFn | server-fn |
 | `lib/server/functions/help-center.ts`::getPublicCategoryBySlugFn | server-fn |
 | `lib/server/functions/help-center.ts`::getPublicCategoryPageFn | server-fn |
+| `lib/server/functions/help-center.ts`::getPublicCollectionPageFn | server-fn |
 | `lib/server/functions/help-center.ts`::getRelatedPublicArticlesFn | server-fn |
 | `lib/server/functions/help-center.ts`::listPopularPublicArticlesFn | server-fn |
 | `lib/server/functions/help-center.ts`::listPublicArticlesFn | server-fn |
@@ -1018,6 +1066,7 @@ Each is expected to be intentionally public, a pre-auth flow, a signature-verifi
 | `lib/server/functions/help-center.ts`::listPublicCategoriesFn | server-fn |
 | `lib/server/functions/help-center.ts`::listPublicCategoryEditorsFn | server-fn |
 | `lib/server/functions/help-center.ts`::recordArticleFeedbackFn | server-fn |
+| `lib/server/functions/help-center.ts`::resolvePublicArticleRefFn | server-fn |
 | `lib/server/functions/help-center.ts`::searchPublicArticlesFn | server-fn |
 | `lib/server/functions/help-center.ts`::submitArticleFeedbackReasonFn | server-fn |
 | `lib/server/functions/instant-sso.ts`::resolveInstantSsoRedirectFn | server-fn |
@@ -1026,6 +1075,7 @@ Each is expected to be intentionally public, a pre-auth flow, a signature-verifi
 | `lib/server/functions/invitations.ts`::getInviteBrandingFn | server-fn |
 | `lib/server/functions/invitations.ts`::setPasswordFn | server-fn |
 | `lib/server/functions/locale.ts`::getPortalLocaleFn | server-fn |
+| `lib/server/functions/onboarding.ts`::ensureOnboardingHomeReadyFn | server-fn |
 | `lib/server/functions/onboarding.ts`::getWorkspaceClaimFn | server-fn |
 | `lib/server/functions/onboarding.ts`::saveCloudOnboardingGoalFn | server-fn |
 | `lib/server/functions/onboarding.ts`::saveUserNameFn | server-fn |
@@ -1050,6 +1100,7 @@ Each is expected to be intentionally public, a pre-auth flow, a signature-verifi
 | `lib/server/functions/portal.ts`::getCommentsSectionDataFn | server-fn |
 | `lib/server/functions/portal.ts`::getPrincipalIdForUser | server-fn |
 | `lib/server/functions/post-merge.ts`::getPostMergeInfoFn | server-fn |
+| `lib/server/functions/powered-by.ts`::getShowPoweredByFn | server-fn |
 | `lib/server/functions/public-cache.ts`::setPublicDocumentCacheHeaders | server-fn |
 | `lib/server/functions/public-posts.ts`::findSimilarPostsFn | server-fn |
 | `lib/server/functions/public-posts.ts`::getPostPermissionsFn | server-fn |
@@ -1061,10 +1112,8 @@ Each is expected to be intentionally public, a pre-auth flow, a signature-verifi
 | `lib/server/functions/public-posts.ts`::listPublicRoadmapsFn | server-fn |
 | `lib/server/functions/public-profile.ts`::getPublicUserProfileFn | server-fn |
 | `lib/server/functions/recovery-codes-consume.ts`::consumeRecoveryCodeFn | server-fn |
-| `lib/server/functions/settings-utils.ts`::fetchSettingsFaviconData | server-fn |
 | `lib/server/functions/settings-utils.ts`::fetchSettingsHeaderLogoData | server-fn |
 | `lib/server/functions/settings-utils.ts`::fetchSettingsLogoData | server-fn |
-| `lib/server/functions/settings-utils.ts`::fetchSettingsPortalOgImageData | server-fn |
 | `lib/server/functions/settings.ts`::fetchBrandingConfig | server-fn |
 | `lib/server/functions/settings.ts`::fetchCustomCssFn | server-fn |
 | `lib/server/functions/settings.ts`::fetchPublicAuthConfig | server-fn |
@@ -1083,14 +1132,32 @@ Each is expected to be intentionally public, a pre-auth flow, a signature-verifi
 | `lib/server/functions/user.ts`::getUserStatsFn | server-fn |
 | `lib/server/functions/user.ts`::removeAvatarFn | server-fn |
 | `lib/server/functions/user.ts`::saveAvatarKeyFn | server-fn |
-| `lib/server/functions/user.ts`::updateNotificationPreferencesFn | server-fn |
 | `lib/server/functions/user.ts`::updateProfileNameFn | server-fn |
 | `lib/server/functions/version.ts`::getLatestVersion | server-fn |
 | `lib/server/functions/widget-capabilities.ts`::getWidgetCapabilitiesFn | server-fn |
+| `lib/server/functions/widget/changelog.ts`::widgetGetPublicChangelogFn | server-fn |
+| `lib/server/functions/widget/changelog.ts`::widgetListPublicChangelogsFn | server-fn |
+| `lib/server/functions/widget/conversation.ts`::widgetGetConversationPresenceFn | server-fn |
+| `lib/server/functions/widget/conversation.ts`::widgetGetMessengerUnreadFn | server-fn |
+| `lib/server/functions/widget/conversation.ts`::widgetGetMyConversationFn | server-fn |
+| `lib/server/functions/widget/conversation.ts`::widgetGetMyConversationsFn | server-fn |
+| `lib/server/functions/widget/conversation.ts`::widgetGetTeamAvatarsFn | server-fn |
+| `lib/server/functions/widget/help.ts`::widgetListPublicArticlesFn | server-fn |
+| `lib/server/functions/widget/help.ts`::widgetListPublicArticlesForCategoryFn | server-fn |
+| `lib/server/functions/widget/help.ts`::widgetListPublicCategoriesFn | server-fn |
+| `lib/server/functions/widget/help.ts`::widgetRecordArticleFeedbackFn | server-fn |
+| `lib/server/functions/widget/help.ts`::widgetResolvePublicArticleRefFn | server-fn |
+| `lib/server/functions/widget/posts.ts`::widgetFetchBoardCapabilitiesFn | server-fn |
+| `lib/server/functions/widget/posts.ts`::widgetFetchPublicPostDetailFn | server-fn |
+| `lib/server/functions/widget/posts.ts`::widgetGetVotedPostsFn | server-fn |
+| `lib/server/functions/widget/posts.ts`::widgetListPublicPostsFn | server-fn |
 | `lib/server/functions/workspace-utils.ts`::requireWorkspaceRole | server-fn |
 | `routes/_portal.tsx`::setPortalFrameHeaders | server-fn |
+| `routes/[.]well-known.oauth-authorization-server.api.auth.ts`::GET | route |
 | `routes/[.]well-known.oauth-authorization-server.ts`::GET | route |
+| `routes/[.]well-known.oauth-protected-resource.api.mcp.ts`::GET | route |
 | `routes/[.]well-known.oauth-protected-resource.ts`::GET | route |
+| `routes/[.]well-known.openid-configuration.api.auth.ts`::GET | route |
 | `routes/[.]well-known.openid-configuration.ts`::GET | route |
 | `routes/api/admin/assistant/copilot.ts`::POST | route |
 | `routes/api/admin/assistant/transform.ts`::POST | route |
@@ -1115,10 +1182,12 @@ Each is expected to be intentionally public, a pre-auth flow, a signature-verifi
 | `routes/api/import/index.ts`::POST | route |
 | `routes/api/import/runs.$runId.ts`::GET | route |
 | `routes/api/import/runs.ts`::GET | route |
+| `routes/api/integrations/$type/hooks/$kind.ts`::POST | route |
 | `routes/api/integrations/$type/identify.ts`::POST | route |
 | `routes/api/integrations/$type/webhook.ts`::POST | route |
 | `routes/api/internal/billing-projection.ts`::POST | route |
 | `routes/api/internal/identity-projection.ts`::POST | route |
+| `routes/api/internal/job-wake.ts`::POST | route |
 | `routes/api/mcp.ts`::DELETE | route |
 | `routes/api/mcp.ts`::GET | route |
 | `routes/api/mcp.ts`::POST | route |
@@ -1152,9 +1221,11 @@ Each is expected to be intentionally public, a pre-auth flow, a signature-verifi
 | `routes/api/v1/status/services/index.ts`::GET | route |
 | `routes/api/v1/status/services/index.ts`::POST | route |
 | `routes/api/v1/users/$principalId.card.ts`::GET | route |
+| `routes/api/widget-sso.ts`::GET | route |
 | `routes/api/widget/config[.]json.ts`::GET | route |
 | `routes/api/widget/device.ts`::POST | route |
 | `routes/api/widget/identify.ts`::POST | route |
+| `routes/api/widget/install-context.ts`::POST | route |
 | `routes/api/widget/kb-ask.ts`::GET | route |
 | `routes/api/widget/kb-ask.ts`::POST | route |
 | `routes/api/widget/kb-search.ts`::GET | route |
@@ -1165,8 +1236,10 @@ Each is expected to be intentionally public, a pre-auth flow, a signature-verifi
 | `routes/apps.tsx`::setIframeHeaders | server-fn |
 | `routes/auth.widget-handoff.tsx`::consumeWidgetHandoffFn | server-fn |
 | `routes/changelog/feed.ts`::GET | route |
+| `routes/e2e.widget.ts`::GET | route |
 | `routes/hc/sitemap[.]xml.ts`::GET | route |
 | `routes/oauth/$integration/callback.ts`::GET | route |
+| `routes/oauth/$integration/callback.ts`::POST | route |
 | `routes/oauth/$integration/connect.ts`::GET | route |
 | `routes/oauth/connector.callback.ts`::GET | route |
 | `routes/robots[.]txt.ts`::GET | route |

@@ -5,7 +5,7 @@ import { useKeyboardSubmit } from '@/lib/client/hooks/use-keyboard-submit'
 import { CustomerContextPanel } from '@/components/admin/feedback/customer-context-panel'
 import { ModalFooter } from '@/components/shared/modal-footer'
 import { useUrlModal } from '@/lib/client/hooks/use-url-modal'
-import { useSuspenseQuery, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSuspenseQuery, useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import type { JSONContent } from '@tiptap/react'
 import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/solid'
 import { toast } from 'sonner'
@@ -14,7 +14,7 @@ import { ModalHeader } from '@/components/shared/modal-header'
 import { UrlModalShell } from '@/components/shared/url-modal-shell'
 import { Button } from '@/components/ui/button'
 import { RichTextEditor } from '@/components/ui/rich-text-editor'
-import { usePostImageUpload, usePortalImageUpload } from '@/lib/client/hooks/use-image-upload'
+import { usePostMediaUpload, usePortalMediaUpload } from '@/lib/client/hooks/use-image-upload'
 import { adminQueries } from '@/lib/client/queries/admin'
 import { postOwnerQueries } from '@/lib/client/queries/post-owner'
 import { mergeSuggestionQueries } from '@/lib/client/queries/signals'
@@ -57,7 +57,7 @@ import {
 } from '@/components/public/post-detail/delete-post-dialog'
 import { usePostExternalLinks } from '@/lib/client/hooks/use-post-external-links-query'
 import { usePostDetailKeyboard } from '@/lib/client/hooks/use-post-detail-keyboard'
-import { setPostEtaFn } from '@/lib/server/functions/posts'
+import { retryPostIntegrationSyncFn, setPostEtaFn } from '@/lib/server/functions/posts'
 import { useRouterState } from '@tanstack/react-router'
 import {
   type PostId,
@@ -108,6 +108,7 @@ function PostModalContent({
   // resolved from it against the post's ownerPrincipalId (already in payload).
   const canSetOwner = usePermission(PERMISSIONS.POST_SET_OWNER)
   const canModerate = usePermission(PERMISSIONS.POST_APPROVE)
+  const canManageIntegrations = usePermission(PERMISSIONS.INTEGRATION_MANAGE)
   const approvePost = useApprovePost(postId)
   const rejectPost = useRejectPost(postId)
   const { data: ownerCandidates } = useQuery({
@@ -126,8 +127,8 @@ function PostModalContent({
   } = useLoadMoreAdminComments(postId, inboxKeys.detail(postId))
 
   // Image upload
-  const { upload: uploadImage } = usePostImageUpload()
-  const { upload: uploadCommentImage } = usePortalImageUpload()
+  const { upload: uploadMedia } = usePostMediaUpload()
+  const { upload: uploadCommentMedia } = usePortalMediaUpload()
 
   // Form state - always in edit mode
   const [title, setTitle] = useState(post.title)
@@ -169,8 +170,26 @@ function PostModalContent({
   const changePostBoard = useChangePostBoard()
   const updateOwner = useUpdatePostOwner()
 
+  const retryIntegrations = useMutation({
+    mutationFn: () => retryPostIntegrationSyncFn({ data: { id: post.id } }),
+    onSuccess: (result) => {
+      toast.success(
+        result.needsAttention
+          ? 'Some syncs need review. Open Sync history in integration settings.'
+          : result.queued
+            ? 'Integration sync queued'
+            : 'No new sync work to queue'
+      )
+    },
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : 'Failed to retry integrations'),
+  })
+
   // External links for cascade delete
-  const externalLinksQuery = usePostExternalLinks(post.id as PostId, showDeleteDialog)
+  const externalLinksQuery = usePostExternalLinks(
+    post.id as PostId,
+    showDeleteDialog || canManageIntegrations
+  )
 
   // Initialize form with post data
   useEffect(() => {
@@ -296,6 +315,14 @@ function PostModalContent({
       (ownerCandidates ?? []).find((m) => m.principalId === post.ownerPrincipalId)) ||
     null
   const manageActions = {
+    onRetryIntegrations:
+      canManageIntegrations &&
+      !post.deletedAt &&
+      post.moderationState === 'published' &&
+      externalLinksQuery.data !== undefined
+        ? () => retryIntegrations.mutate()
+        : undefined,
+    isRetryIntegrationsPending: retryIntegrations.isPending,
     onMergeOthers: () => setShowMergeOthersDialog(true),
     onMergeInto: () => setShowMergeDialog(true),
     onToggleLock: () =>
@@ -417,13 +444,15 @@ function PostModalContent({
                   blockquotes: true,
                   dividers: true,
                   images: true,
+                  videos: true,
                   tables: true,
                   embeds: true,
                   quackbackEmbeds: true,
                   bubbleMenu: true,
                   slashMenu: true,
                 }}
-                onImageUpload={uploadImage}
+                onImageUpload={uploadMedia}
+                onVideoUpload={uploadMedia}
               />
 
               {/* AI section — summary + similar posts */}
@@ -500,7 +529,7 @@ function PostModalContent({
                     onRestoreComment={(commentId: PostCommentId) =>
                       restoreCommentMutation.mutate(commentId)
                     }
-                    onImageUpload={uploadCommentImage}
+                    onImageUpload={uploadCommentMedia}
                     canModerate={canModerate}
                     restoringCommentId={
                       restoreCommentMutation.isPending
@@ -594,6 +623,10 @@ function PostModalContent({
             toast.success('Post deleted')
             // Show warnings for failed cascade operations
             if (result.cascadeResults) {
+              if (result.cascadeResults.some((r) => r.success))
+                toast.message('Archive requests saved', {
+                  description: 'Review and finish them in each integration’s Sync history.',
+                })
               for (const r of result.cascadeResults) {
                 if (!r.success) {
                   toast.warning(`Failed to close ${r.integrationType} issue: ${r.error}`)

@@ -37,7 +37,7 @@ export function StatusMaintenanceScheduledEmail({
 }: StatusMaintenanceScheduledEmailProps) {
   return (
     <EmailLayout
-      preview={`تعمیر و نگهداری زمان‌بندی‌شده: ${maintenanceTitle} (${startLabel})`}
+      preview={`Scheduled maintenance: ${maintenanceTitle} (${startLabel})`}
       logoUrl={logoUrl}
       logoAlt={workspaceName}
     >
@@ -53,11 +53,11 @@ export function StatusMaintenanceScheduledEmail({
           marginBottom: '8px',
         }}
       >
-        تعمیر و نگهداری زمان‌بندی‌شده
+        Scheduled maintenance
       </Text>
       <Heading style={typography.h1}>{maintenanceTitle}</Heading>
       <Text style={typography.text}>
-        {workspaceName} تعمیر و نگهداری زمان‌بندی‌شده‌ای دارد که ممکن است بر سرویس‌های آن تأثیر بگذارد.
+        {workspaceName} has scheduled maintenance that may affect its services.
       </Text>
       {body && <Text style={typography.text}>{body}</Text>}
 
@@ -80,10 +80,10 @@ export function StatusMaintenanceScheduledEmail({
             marginBottom: '4px',
           }}
         >
-          بازه‌ی تعمیر و نگهداری
+          Maintenance window
         </Text>
         <Text style={{ ...typography.text, marginTop: '0', marginBottom: '0', fontWeight: '600' }}>
-          {startLabel} تا {endLabel}
+          {startLabel} to {endLabel}
         </Text>
       </Section>
 
@@ -98,7 +98,7 @@ export function StatusMaintenanceScheduledEmail({
               marginBottom: '8px',
             }}
           >
-            مؤلفه‌های تحت تأثیر
+            Affected components
           </Text>
           <Text style={{ ...typography.textSmall, marginTop: '0', marginBottom: '0' }}>
             {affectedComponents.join(', ')}
@@ -109,13 +109,13 @@ export function StatusMaintenanceScheduledEmail({
       {/* CTA Button */}
       <Section style={{ textAlign: 'center', marginTop: '32px', marginBottom: '32px' }}>
         <Button style={button.primary} href={incidentUrl}>
-          مشاهده‌ی صفحه‌ی وضعیت
+          View status page
         </Button>
       </Section>
 
       {/* Footer */}
       <NotificationFooter
-        reason="این ایمیل به این دلیل برای شما ارسال شده که دریافت به‌روزرسانی‌های وضعیت را فعال کرده‌اید."
+        reason="You received this email because you're subscribed to status updates."
         unsubscribeUrl={unsubscribeUrl}
         preferencesUrl={preferencesUrl}
       />

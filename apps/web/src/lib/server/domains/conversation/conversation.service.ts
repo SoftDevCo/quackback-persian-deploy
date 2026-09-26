@@ -41,7 +41,12 @@ import type {
   TeamId,
 } from '@quackback/ids'
 import { NotFoundError, ValidationError, ForbiddenError } from '@/lib/shared/errors'
-import { channelFromVisitorTransport } from '@/lib/shared/channels'
+import {
+  channelFromVisitorTransport,
+  channelCloseSystemCopy,
+  getChannelDescriptor,
+} from '@/lib/shared/channels'
+import { isThreadAddressedChannel, pendingChannelDelivery } from './conversation.channel-delivery'
 import {
   canSendVisitorMessage,
   canStartConversation,
@@ -51,7 +56,6 @@ import {
 } from '@/lib/server/policy/conversation'
 import type { Actor } from '@/lib/server/policy/types'
 import {
-  MAX_CONVERSATION_ATTACHMENTS,
   HANDOFF_REASON_LABELS,
   CONVERSATION_SPAM_FILED_BY_LABELS,
   type ConversationStatus,
@@ -73,6 +77,7 @@ import {
 } from './conversation.lifecycle'
 import {
   publishConversationEvent,
+  publishConversationMessage,
   publishAgentConversationEvent,
   publishConversationUpdate,
   publishTyping,
@@ -97,6 +102,7 @@ import {
   toMessageDTO,
   authorFromInput,
   resolveAuthor,
+  resolveAuthorAudiences,
 } from './conversation.query'
 import {
   emitConversationCreated,
@@ -389,7 +395,11 @@ export async function sendVisitorMessage(
     // a block posted on an already-closed conversation is the intended
     // post-close CSAT/button flow, not the customer reopening the thread —
     // see applyVisitorReopenStatus's doc.
-    const visitorNextStatus = applyVisitorReopenStatus(conversation.status, !!resolvedBlockReply)
+    const visitorNextStatus = applyVisitorReopenStatus(
+      conversation.status,
+      !!resolvedBlockReply,
+      getChannelDescriptor(conversation.channel)?.reopenOnReply ?? 'always'
+    )
     const [updated] = await tx
       .update(conversations)
       .set({
@@ -440,18 +450,19 @@ export async function sendVisitorMessage(
     return { conversation: updated, message }
   })
 
-  const messageDTO = toMessageDTO(txResult.message, authorFromInput(author))
+  const authored = await resolveAuthorAudiences(author)
+  const visitorMessage = toMessageDTO(txResult.message, authored.publicAuthor)
+  const agentMessage = toMessageDTO(txResult.message, authored.supportAuthor)
 
   // A new conversation appears in the agent inbox; publish the agent-side DTO
   // there (publishConversationUpdate strips agent-only fields for the visitor).
   if (created) {
     const agentDTO = await conversationToDTO(txResult.conversation, 'agent')
-    publishConversationUpdate(agentDTO.id, agentDTO)
+    await publishConversationUpdate(agentDTO.id, agentDTO)
   }
-  publishConversationEvent(txResult.conversation.id, {
-    kind: 'message',
-    conversationId: txResult.conversation.id,
-    message: messageDTO,
+  publishConversationMessage(txResult.conversation.id, {
+    visitor: visitorMessage,
+    agent: agentMessage,
   })
 
   // A brand-new conversation: try auto-routing it to an active agent. Best-
@@ -467,7 +478,7 @@ export async function sendVisitorMessage(
     // subject/preheader excerpt and renders the whole body inline.
     content: content || preview(fallbackLabel, attachments),
     contentJson: safeContentJson,
-    authorName: author.displayName ?? 'A visitor',
+    authorName: authored.supportAuthor.displayName ?? 'A visitor',
     isFirstMessage: created,
   })
 
@@ -521,13 +532,14 @@ export async function sendVisitorMessage(
   // Return a VISITOR-side DTO to the caller — never leak the agent-only
   // visitorEmail back to the visitor in the send response.
   const conversationDTO = await conversationToDTO(txResult.conversation, 'visitor')
-  return { conversation: conversationDTO, message: messageDTO, created }
+  return { conversation: conversationDTO, message: visitorMessage, created }
 }
 
 export interface StartAgentConversationInput {
   targetPrincipalId: PrincipalId
   content: string
   contentJson?: TiptapContent | null
+  attachments?: ConversationAttachment[]
 }
 
 /**
@@ -550,6 +562,7 @@ export async function startAgentConversation(
   // Rich-composer doc (inline embeds/images): sanitized on write like the
   // agent-reply path, but no origin restriction — this message is always
   // agent-authored, never a visitor upload.
+  const attachments = validateAttachments(input.attachments)
   const safeContentJson = input.contentJson ? sanitizeTiptapContent(input.contentJson) : null
   // A text-less rich message is valid only when it carries an inline image or
   // a shared post; this label also backs the subject/preview/notification body.
@@ -558,7 +571,7 @@ export async function startAgentConversation(
   // caller sent blank content alongside a text-bearing one.
   const content = validateContent(
     resolveMessageContent(input.content, safeContentJson),
-    !!fallbackLabel
+    attachments.length > 0 || !!fallbackLabel
   )
 
   const [target] = await db
@@ -606,7 +619,7 @@ export async function startAgentConversation(
         // The composer owns the thread from the start — it lands in "Mine".
         assignedAgentPrincipalId: agent.principalId,
         status: 'open',
-        subject: preview(content || fallbackLabel, []),
+        subject: preview(content || fallbackLabel, attachments),
       })
       .returning()
 
@@ -618,6 +631,7 @@ export async function startAgentConversation(
         senderType: 'agent',
         content,
         contentJson: safeContentJson,
+        attachments: attachments.length > 0 ? attachments : null,
       })
       .returning()
 
@@ -625,7 +639,7 @@ export async function startAgentConversation(
       .update(conversations)
       .set({
         lastMessageAt: message.createdAt,
-        lastMessagePreview: preview(content || fallbackLabel, []),
+        lastMessagePreview: preview(content || fallbackLabel, attachments),
         // Composing counts as reading on the agent side.
         agentLastReadAt: message.createdAt,
         updatedAt: message.createdAt,
@@ -636,15 +650,15 @@ export async function startAgentConversation(
     return { conversation: updated, message }
   })
 
-  const messageDTO = toMessageDTO(txResult.message, await resolveAuthor(agent))
+  const authored = await resolveAuthorAudiences(agent)
+  const messageDTO = toMessageDTO(txResult.message, authored.supportAuthor)
   // Agent-side DTO for the inbox stream; publishConversationUpdate strips
   // agent-only fields from the visitor's copy.
   const agentDTO = await conversationToDTO(txResult.conversation, 'agent')
-  publishConversationUpdate(agentDTO.id, agentDTO)
-  publishConversationEvent(txResult.conversation.id, {
-    kind: 'message',
-    conversationId: txResult.conversation.id,
-    message: messageDTO,
+  await publishConversationUpdate(agentDTO.id, agentDTO)
+  publishConversationMessage(txResult.conversation.id, {
+    visitor: toMessageDTO(txResult.message, authored.publicAuthor),
+    agent: messageDTO,
   })
 
   // Always email the first message — fire-and-forget; a delivery failure never
@@ -653,9 +667,12 @@ export async function startAgentConversation(
     conversationId: txResult.conversation.id,
     visitorPrincipalId: txResult.conversation.visitorPrincipalId,
     // Full text, not the truncated preview — notify derives its own excerpt.
-    content: content || fallbackLabel,
+    // Same fallback as sendAgentMessage: attachment-only opens have no
+    // contentJson image node, so richMessageFallbackLabel is empty.
+    content: content || preview(fallbackLabel, attachments),
     contentJson: safeContentJson,
-    agentName: agent.displayName ?? 'Support',
+    agentName: authored.publicAuthor.displayName ?? 'Support',
+    messageId: txResult.message.id,
   })
 
   void emitConversationCreated(actor, agent, txResult.conversation)
@@ -710,6 +727,14 @@ export async function sendAgentMessage(
       throw new NotFoundError('CONVERSATION_NOT_FOUND', 'Conversation not found')
     }
 
+    const channelDelivery = isThreadAddressedChannel(existing.channel)
+      ? pendingChannelDelivery(existing.channel)
+      : undefined
+    const metadata: ConversationMessageMetadata = {
+      ...(extraMetadata ?? {}),
+      ...(channelDelivery ? { channelDelivery } : {}),
+    }
+
     const [message] = await tx
       .insert(conversationMessages)
       .values({
@@ -719,11 +744,14 @@ export async function sendAgentMessage(
         content,
         contentJson: safeContentJson,
         attachments: attachments.length > 0 ? attachments : null,
-        metadata: extraMetadata ?? null,
+        metadata: Object.keys(metadata).length > 0 ? metadata : null,
       })
       .returning()
 
-    const agentNextStatus = applyAgentReopenStatus(existing.status)
+    const agentNextStatus = applyAgentReopenStatus(
+      existing.status,
+      getChannelDescriptor(existing.channel)?.reopenOnReply ?? 'always'
+    )
     const [updated] = await tx
       .update(conversations)
       .set({
@@ -751,22 +779,19 @@ export async function sendAgentMessage(
     }
   })
 
-  const messageDTO = toMessageDTO(txResult.message, await resolveAuthor(agent))
+  const authored = await resolveAuthorAudiences(agent)
+  // Inbox sees the account name. The visitor channel keeps the public name,
+  // even though both are plain message DTOs (translatedFrom stays off this
+  // event — see the message_updated broadcast below).
+  const messageDTO = toMessageDTO(txResult.message, authored.supportAuthor)
   // Agent-side DTO so the inbox keeps agent-only fields; publishConversationUpdate
   // strips them from the visitor's copy.
   const conversationDTO = await conversationToDTO(txResult.conversation, 'agent')
 
-  publishConversationUpdate(conversationDTO.id, conversationDTO)
-  // The VISITOR's own widget shares this exact channel (publishConversationEvent
-  // fans out to both the conversation channel and the inbox), so `messageDTO`
-  // here must stay the plain agent-and-visitor-safe ConversationMessageDTO —
-  // never widen it to carry translatedFrom (agent-only). See the
-  // message_updated broadcast below for how translatedFrom reaches other
-  // agents instead.
-  publishConversationEvent(txResult.conversation.id, {
-    kind: 'message',
-    conversationId: txResult.conversation.id,
-    message: messageDTO,
+  await publishConversationUpdate(conversationDTO.id, conversationDTO)
+  publishConversationMessage(txResult.conversation.id, {
+    visitor: toMessageDTO(txResult.message, authored.publicAuthor),
+    agent: messageDTO,
   })
 
   // P2-D.1: surface translatedFrom on the DTO returned to the sending agent,
@@ -780,6 +805,7 @@ export async function sendAgentMessage(
     flaggedAt: null,
     postSuggestion: null,
     translatedFrom: extraMetadata?.translatedFrom ?? null,
+    channelDelivery: txResult.message.metadata?.channelDelivery ?? null,
   }
   if (agentMessageDTO.translatedFrom) {
     // Inbox channel ONLY (never the visitor's conversation channel, unlike
@@ -798,9 +824,10 @@ export async function sendAgentMessage(
     // Full text, not the truncated preview — notify derives its own excerpt.
     content: content || preview(fallbackLabel, attachments),
     contentJson: safeContentJson,
-    agentName: agent.displayName ?? 'Support',
+    agentName: authored.publicAuthor.displayName ?? 'Support',
     capturedEmail: txResult.conversation.visitorEmail,
     channel: txResult.conversation.channel,
+    messageId: txResult.message.id,
   })
 
   // isFirstMessage only matters for a VISITOR message — this is an agent
@@ -845,11 +872,11 @@ export async function addAgentNote(
 ): Promise<SendAgentMessageResult> {
   const decision = canActAsAgent(actor)
   if (!decision.allowed) throw new ForbiddenError('FORBIDDEN', decision.reason)
-  const content = validateContent(rawContent)
-  const noteAttachments =
-    attachments && attachments.length > 0
-      ? attachments.slice(0, MAX_CONVERSATION_ATTACHMENTS)
-      : null
+  // Same write-side attachment gate as replies: trusted URL + size first,
+  // then empty-content is allowed only when a validated attachment remains.
+  const attachmentsValidated = validateAttachments(attachments)
+  const noteAttachments = attachmentsValidated.length > 0 ? attachmentsValidated : null
+  const content = validateContent(rawContent, attachmentsValidated.length > 0)
 
   // Sanitize on write (Layer 1), like every other TipTap-doc path (comments,
   // posts, changelog). Drops disallowed nodes/attrs + caps depth, so a tampered
@@ -952,25 +979,26 @@ export async function setConversationStatus(
     .where(eq(conversations.id, conversationId))
     .returning()
   // Mark the lifecycle change in the transcript for both sides (author-less).
+  const closeCopy = channelCloseSystemCopy(updated.channel)
   if (status !== previous) {
     if (status === 'closed') {
       await emitSystemMessage(
         conversationId,
-        'Conversation ended',
+        closeCopy.ended,
         { kind: 'chat_ended' },
         { workflowName: attribution?.workflowName }
       )
     } else if (previous === 'closed') {
       await emitSystemMessage(
         conversationId,
-        'Conversation reopened',
+        closeCopy.reopened,
         { kind: 'chat_reopened' },
         { workflowName: attribution?.workflowName }
       )
     }
   }
   const dto = await conversationToDTO(updated, 'agent')
-  publishConversationUpdate(conversationId, dto)
+  await publishConversationUpdate(conversationId, dto)
   if (updated.status !== previous) {
     void emitConversationStatusChanged(actor, updated, previous)
   }
@@ -992,6 +1020,17 @@ export async function setConversationStatus(
       )
       .catch((err) => {
         log.warn({ err, conversationId }, 'conversation close lifecycle delivery failed')
+      })
+  } else if (status === 'open' && previous === 'closed') {
+    void import('@/lib/server/domains/channels')
+      .then(({ requireChannelAdapter }) =>
+        requireChannelAdapter(updated.channel).deliverLifecycleEvent('reopened', {
+          conversationId,
+          closerPrincipalId: actor.principalId,
+        })
+      )
+      .catch((err) => {
+        log.warn({ err, conversationId }, 'conversation reopen lifecycle delivery failed')
       })
   }
   if (status === 'closed' && previous !== 'closed' && actor.principalType === 'user') {
@@ -1029,7 +1068,7 @@ export async function snoozeConversation(
     .where(eq(conversations.id, conversationId))
     .returning()
   const dto = await conversationToDTO(updated, 'agent')
-  publishConversationUpdate(conversationId, dto)
+  await publishConversationUpdate(conversationId, dto)
   await emitSnoozeSystemMessage(conversationId, actor.principalId, until)
   if (updated.status !== previous) {
     void emitConversationStatusChanged(actor, updated, previous)
@@ -1060,7 +1099,7 @@ export async function sweepDueSnoozedConversations(): Promise<{ woken: number }>
   await Promise.all(
     due.map(async (conversation) => {
       const dto = await conversationToDTO(conversation, 'agent')
-      publishConversationUpdate(conversation.id, dto)
+      await publishConversationUpdate(conversation.id, dto)
       void emitConversationStatusChanged(actor, conversation, 'snoozed')
     })
   )
@@ -1108,10 +1147,12 @@ export async function endConversation(
   // Mark the close in the transcript for both sides — but only on a real
   // open/pending → closed transition, mirroring setConversationStatus.
   if (previous !== 'closed') {
-    await emitSystemMessage(conversationId, 'Conversation ended', { kind: 'chat_ended' })
+    await emitSystemMessage(conversationId, channelCloseSystemCopy(updated.channel).ended, {
+      kind: 'chat_ended',
+    })
   }
   const dto = await conversationToDTO(updated, 'agent')
-  publishConversationUpdate(conversationId, dto)
+  await publishConversationUpdate(conversationId, dto)
   if (previous !== 'closed') {
     void emitConversationStatusChanged(actor, updated, previous)
     void import('@/lib/server/domains/channels')
@@ -1167,7 +1208,7 @@ export async function restoreConversationFromSpam(
     internal: true,
   })
   const dto = await conversationToDTO(updated, 'agent')
-  publishConversationUpdate(conversationId, dto)
+  await publishConversationUpdate(conversationId, dto)
   void emitConversationStatusChanged(actor, updated, existing.status)
   return dto
 }
@@ -1204,7 +1245,7 @@ export async function autoFileConversationAsSpam(
     internal: true,
   })
   const dto = await conversationToDTO(updated, 'agent')
-  publishConversationUpdate(conversationId, dto)
+  await publishConversationUpdate(conversationId, dto)
   void emitConversationStatusChanged(systemActor(), updated, existing.status)
   log.info({ conversation_id: conversationId }, 'conversation auto-filed as spam')
   return true
@@ -1425,7 +1466,7 @@ async function assignRoutedConversation(conversation: Conversation): Promise<Pri
     .returning()
   if (!assigned) return null
   await emitAssignmentSystemMessage(assigned.id, assignedPrincipalId)
-  publishConversationUpdate(assigned.id, await conversationToDTO(assigned, 'agent'))
+  await publishConversationUpdate(assigned.id, await conversationToDTO(assigned, 'agent'))
   // Auto-routing only ever touches the agent column — the team side reports
   // no change (still-current value as its own "previous").
   void emitConversationAssigned(systemActor(), assigned, null, assigned.assignedTeamId ?? null)
@@ -1472,7 +1513,7 @@ export async function assignConversation(
     .where(eq(conversations.id, conversationId))
     .returning()
   const dto = await conversationToDTO(updated, 'agent')
-  publishConversationUpdate(conversationId, dto)
+  await publishConversationUpdate(conversationId, dto)
   if (agentPrincipalId) {
     await emitAssignmentSystemMessage(conversationId, agentPrincipalId, attribution)
   }
@@ -1540,7 +1581,7 @@ export async function assignTeam(
     .returning()
 
   const dto = await conversationToDTO(updated, 'agent')
-  publishConversationUpdate(conversationId, dto)
+  await publishConversationUpdate(conversationId, dto)
 
   if (team) {
     await emitTeamAssignmentSystemMessage(conversationId, team.name)
@@ -1637,7 +1678,8 @@ export async function requeueUnansweredOnAgentOffline(
         .from(conversations)
         .where(eq(conversations.id, conversation.id))
         .limit(1)
-      if (current) publishConversationUpdate(current.id, await conversationToDTO(current, 'agent'))
+      if (current)
+        await publishConversationUpdate(current.id, await conversationToDTO(current, 'agent'))
     }
   } catch (err) {
     log.warn({ err }, 'requeue unanswered on agent offline failed')
@@ -1669,7 +1711,7 @@ export async function setConversationPriority(
     .where(eq(conversations.id, conversationId))
     .returning()
   const dto = await conversationToDTO(updated, 'agent')
-  publishConversationUpdate(conversationId, dto)
+  await publishConversationUpdate(conversationId, dto)
   if (updated.priority !== existing.priority) {
     await emitPriorityChangeSystemMessage(conversationId, actor.principalId, updated.priority)
     void emitConversationPriorityChanged(actor, updated, existing.priority)
@@ -1695,29 +1737,21 @@ export async function deleteConversationMessage(
     .limit(1)
   if (!message) throw new NotFoundError('MESSAGE_NOT_FOUND', 'Message not found')
 
-  // System events (assignment notices) are status records, not user content —
-  // no one deletes them, on either parent. The guard also narrows senderType
-  // to visitor|agent for canDeleteMessage below.
-  if (message.senderType === 'system') {
-    throw new ForbiddenError('FORBIDDEN', 'System messages cannot be deleted')
+  const authored = {
+    senderType: message.senderType,
+    authorPrincipalId: message.principalId,
+    parent: message.conversationId ? ('conversation' as const) : ('ticket' as const),
+    isInternal: message.isInternal,
   }
 
   if (!message.conversationId) {
-    // Ticket-thread message. `canDeleteMessage`'s third argument is typed as
-    // ConversationShape (visitorPrincipalId + a ConversationStatus) — real
-    // conversation semantics that don't map onto a ticket, and there's no
-    // ticket-side "delete your own message" feature to preserve (the
-    // requester portal exposes no delete action at all today), so this path
-    // is intentionally narrower than the conversation one above: any team
-    // member who can see the ticket (assigned to them/their team, or
-    // ticket.view_all) may delete any of its messages. `canActAsAgent` is the
-    // same broad "is this actor an agent" gate `message.actions.ts`'s
-    // `requireAgent` uses for the equivalent ticket-message actions.
+    // Ticket-thread message: the same own-message / moderator rule as a
+    // conversation, once the actor is known to see the ticket.
     if (!message.ticketId) throw new NotFoundError('MESSAGE_NOT_FOUND', 'Message not found')
     // Resolves the parent + authorizes ticket visibility (§2.5) — shared with
     // message.actions.ts's identical resolve-then-authorize step.
     await resolveMessageParent(message, actor)
-    const decision = canActAsAgent(actor)
+    const decision = canDeleteMessage(actor, authored, null)
     if (!decision.allowed) throw new ForbiddenError('FORBIDDEN', decision.reason)
 
     await db
@@ -1739,17 +1773,23 @@ export async function deleteConversationMessage(
   const conversationId = message.conversationId
   const conversation = await loadConversationOr404(conversationId)
 
-  const decision = canDeleteMessage(
-    actor,
-    { senderType: message.senderType, authorPrincipalId: message.principalId },
-    conversation
-  )
+  const decision = canDeleteMessage(actor, authored, conversation)
   if (!decision.allowed) {
     // Hide existence from anyone who can't even view the conversation.
     if (!canViewConversation(actor, conversation).allowed) {
       throw new NotFoundError('MESSAGE_NOT_FOUND', 'Message not found')
     }
     throw new ForbiddenError('FORBIDDEN', decision.reason)
+  }
+
+  if (
+    conversation.channel === 'github' &&
+    !message.isInternal &&
+    message.metadata?.githubCommentId
+  ) {
+    const { deleteGitHubIssueComment } =
+      await import('@/lib/server/domains/channels/github-deliver')
+    await deleteGitHubIssueComment(conversationId, message.metadata.githubCommentId)
   }
 
   await db
@@ -1840,7 +1880,7 @@ export async function recordCsat(
   // Surface the rating to the agent inbox live (agent-only fields stripped for
   // the visitor). This fires on every call so a follow-up comment still lands.
   const dto = await conversationToDTO(updated, 'agent')
-  publishConversationUpdate(conversationId, dto)
+  await publishConversationUpdate(conversationId, dto)
   // Emit after the transaction commits so a rolled-back write never webhooks.
   if (isFirstSubmission) void emitConversationCsatSubmitted(actor, updated)
   if (commentJustAdded) void emitConversationCsatCommentAdded(actor, updated)
@@ -2092,7 +2132,10 @@ export async function appendAssistantReply(
         metadata: opts.metadata ?? null,
       })
       .returning()
-    const nextStatus = applyAgentReopenStatus(existing.status)
+    const nextStatus = applyAgentReopenStatus(
+      existing.status,
+      getChannelDescriptor(existing.channel)?.reopenOnReply ?? 'always'
+    )
     const [updated] = await tx
       .update(conversations)
       .set({
@@ -2108,13 +2151,13 @@ export async function appendAssistantReply(
     return { conversation: updated, message }
   })
 
-  const messageDTO = toMessageDTO(txResult.message, authorFromInput(author), author.principalId)
+  const authored = await resolveAuthorAudiences(author)
+  const messageDTO = toMessageDTO(txResult.message, authored.supportAuthor, author.principalId)
   const conversationDTO = await conversationToDTO(txResult.conversation, 'agent')
-  publishConversationUpdate(conversationDTO.id, conversationDTO)
-  publishConversationEvent(txResult.conversation.id, {
-    kind: 'message',
-    conversationId: txResult.conversation.id,
-    message: messageDTO,
+  await publishConversationUpdate(conversationDTO.id, conversationDTO)
+  publishConversationMessage(txResult.conversation.id, {
+    visitor: toMessageDTO(txResult.message, authored.publicAuthor, author.principalId),
+    agent: messageDTO,
   })
   // isFirstMessage only matters for a VISITOR message — this is Quinn's own
   // reply, so false.
@@ -2250,7 +2293,7 @@ export async function executeAssistantHandoff(
   // assignRoutedConversation broadcasts the assigned DTO itself on success; when
   // routing declines (or a workflow owns the handoff), still surface the update.
   if (!assigned) {
-    publishConversationUpdate(updated.id, await conversationToDTO(updated, 'agent'))
+    await publishConversationUpdate(updated.id, await conversationToDTO(updated, 'agent'))
   }
   // AI attribute classification (AI-ATTRIBUTES-PARITY-SPEC.md Phase 1) runs
   // BEFORE the event dispatches below, so a workflow condition on

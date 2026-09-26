@@ -1,3 +1,4 @@
+import { DEFAULT_WORKSPACE_ASSISTANT } from '@/lib/shared/assistant/config'
 import { describe, expect, it } from 'vitest'
 import type { StoredAssistantConfig } from '@/lib/shared/db-types'
 import {
@@ -58,12 +59,13 @@ const _assistantConfigTwinsAgree: _AssistantConfigTwinsAgree = true
 describe('assistantConfigSchema', () => {
   it('accepts and preserves the V3 default', () => {
     expect(assistantConfigSchema.parse(DEFAULT_ASSISTANT_CONFIG)).toEqual({
-      version: 3,
+      version: 4,
       identity: {
         name: 'Quinn',
         avatarUrl: null,
       },
       agents: {
+        workspace: structuredClone(DEFAULT_WORKSPACE_ASSISTANT),
         agent: {
           voice: {
             tone: 'balanced',
@@ -86,8 +88,8 @@ describe('assistantConfigSchema', () => {
             posts: true,
             pastConversations: true,
             internalNotes: true,
-            tickets: false,
-            changelog: false,
+            tickets: true,
+            changelog: true,
             documents: true,
             status: true,
           },
@@ -238,6 +240,7 @@ describe('assistant configuration normalization', () => {
     expect(normalizeAssistantConfig(input)).toMatchObject({
       identity: { name: 'Quinn وكيل' },
       agents: {
+        workspace: structuredClone(DEFAULT_WORKSPACE_ASSISTANT),
         agent: {
           voice: {
             additionalInstructions: 'Use café ☕.\nاكتب بالعربية.\nכתוב בעברית.',
@@ -403,8 +406,8 @@ describe('v3 per-agent sub-config', () => {
       posts: true,
       pastConversations: true,
       internalNotes: true,
-      tickets: false,
-      changelog: false,
+      tickets: true,
+      changelog: true,
       documents: true,
       status: true,
     })

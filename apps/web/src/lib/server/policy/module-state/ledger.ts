@@ -66,6 +66,20 @@ export interface LedgerEntry {
 
 export const MODULE_STATE_LEDGER: readonly LedgerEntry[] = [
   {
+    file: 'apps/web/src/lib/server/integrations/sync/transport.ts',
+    name: 'evidence',
+    category: 'process-lifetime',
+    reason:
+      'The AsyncLocalStorage instance carries transport evidence for exactly one sync attempt. withSyncTransport creates a new store on every call; concurrent workspaces and attempts cannot read each other’s response counts or failures. No provider data is cached outside that async context.',
+  },
+  {
+    file: 'apps/web/src/lib/server/domains/platform-credentials/platform-credential.service.ts',
+    name: '_controlPlaneSource',
+    category: 'fleet-wide',
+    reason:
+      'CloudCredentialSource reads only the process environment populated before startup. Cross-workspace calls return the same centrally managed OAuth application credentials; per-workspace installation tokens remain in workspace databases.',
+  },
+  {
     file: 'apps/web/src/lib/server/auth/index.ts',
     name: 'authConfigVersions',
     category: 'workspace-keyed',
@@ -273,6 +287,39 @@ export const MODULE_STATE_LEDGER: readonly LedgerEntry[] = [
       'accuses changes.',
   },
   {
+    file: 'apps/web/src/lib/server/workspaces/activity.ts',
+    name: 'lastStampedAt',
+    category: 'workspace-scoped-key',
+    keyedBy: 'workspaceKey',
+    reason:
+      'When this process last wrote a workspace\u2019s activity stamp to the control plane, keyed by ' +
+      'workspaceKey, so a busy workspace costs one UPDATE per five minutes. A cross-workspace hit would ' +
+      'suppress a stamp for the wrong workspace, letting the worker park one that has traffic; the key ' +
+      'is the workspaceKey the request scope already resolved, so there is no other key to hit.',
+  },
+  {
+    file: 'apps/web/src/lib/server/workspaces/activity.ts',
+    name: 'standingWork',
+    category: 'workspace-scoped-key',
+    keyedBy: 'workspaceKey',
+    reason:
+      'Workspaces the job worker found idle but holding a pending job or a deadline, keyed by ' +
+      'workspaceKey, so a fleet pass in the same process keeps visiting them. Written only by the ' +
+      'worker\u2019s refresh from a probe run inside that workspace\u2019s own scope; a wrong entry would ' +
+      'keep an idle workspace awake, never park a busy one.',
+  },
+  {
+    file: 'apps/web/src/lib/server/workspaces/activity.ts',
+    name: 'dormant',
+    category: 'workspace-scoped-key',
+    keyedBy: 'workspaceKey',
+    reason:
+      'Workspaces whose job loop this worker has parked, keyed by workspaceKey. Read for the status ' +
+      'payload and to skip re-probing an already parked workspace; the decision itself is re-derived ' +
+      'every refresh from the registry\u2019s last_active_at, so a stale entry costs at most one refresh ' +
+      'interval.',
+  },
+  {
     file: 'apps/web/src/lib/server/workspaces/resolver.ts',
     name: 'byHostname',
     category: 'workspace-scoped-key',
@@ -460,17 +507,32 @@ export const MODULE_STATE_LEDGER: readonly LedgerEntry[] = [
       'secret: the key id names a principal, the secret is never part of it.',
   },
   {
+    file: 'packages/email/src/powered-by.ts',
+    name: 'resolver',
+    category: 'process-lifetime',
+    reason:
+      'Holds a function pointer installed at boot. Each send awaits it, and the function reads ' +
+      'live workspace cloud config through the scoped db Proxy, so sharing the pointer is not a ' +
+      'cross-workspace cache.',
+  },
+  {
+    file: 'packages/email/src/default-from.ts',
+    name: 'resolver',
+    category: 'process-lifetime',
+    reason:
+      'Holds a function pointer installed at boot. Each send calls it synchronously; the ' +
+      'function reads getCurrentWorkspace()?.email.from, so two workspaces in one process get ' +
+      'different From addresses. Null falls through to EMAIL_FROM, which is the self-host path.',
+  },
+  {
     file: 'packages/email/src/index.ts',
     name: 'smtpTransporter',
     category: 'fleet-wide',
     reason:
       'Built from EMAIL_SMTP_HOST/PORT/USER/PASS. A transport, not an identity, so the client ' +
-      'itself is fleet-wide. Say the rest plainly: the per-workspace part of email is the From ' +
-      'address, and it is BROKEN under pooling - getEmailFrom() reads process.env.EMAIL_FROM per ' +
-      'send, the registry carries a per-workspace email.from, and NOTHING repo-wide reads it, so every ' +
-      'workspace mail goes out from one address. Not this singleton fault and not fixed here (it is ' +
-      'section 8 config resolution, not section 4 process state) - recorded so the next reader is ' +
-      'not reassured by a transport that was never the problem.',
+      'itself is fleet-wide. The per-workspace From is resolved separately: getEmailFrom() ' +
+      'consults the default-from resolver, which a pooled process installs to read registry ' +
+      'email.from, and self-host keeps EMAIL_FROM.',
   },
   {
     file: 'apps/web/src/lib/server/domains/api/openapi.ts',
@@ -859,6 +921,49 @@ export const MODULE_STATE_LEDGER: readonly LedgerEntry[] = [
       'loops it maintains, not in the handle.',
   },
   {
+    file: 'apps/web/src/lib/server/jobs/worker.ts',
+    name: 'storedConfig',
+    category: 'process-lifetime',
+    owner: 'Piece 6 (saas/queue-lease)',
+    reason:
+      'RunnerConfig captured at startJobWorker so a job-wake can start a parked loop with the same ' +
+      'poll/batch/cap numbers. A fact about this process, not a workspace.',
+  },
+  {
+    file: 'apps/web/src/lib/server/jobs/worker.ts',
+    name: 'unsubscribeCommit',
+    category: 'process-lifetime',
+    owner: 'Piece 6 (saas/queue-lease)',
+    reason:
+      'Handle for the after-commit start-by-id sink registered from startJobWorker. Cleared on stop ' +
+      'so a restarted worker does not double-subscribe.',
+  },
+  {
+    file: 'apps/web/src/lib/server/jobs/worker.ts',
+    name: 'loopSetTail',
+    category: 'process-lifetime',
+    owner: 'Piece 6 (saas/queue-lease)',
+    reason:
+      'Promise chain that serializes loops Map mutations (wake vs refresh). Process-local; the ' +
+      'workspace key lives in the map entries, not in this tail.',
+  },
+  {
+    file: 'apps/web/src/lib/server/jobs/wake.ts',
+    name: 'pending',
+    category: 'process-lifetime',
+    owner: 'Piece 6 (saas/queue-lease)',
+    reason:
+      'Coalesce buffer for Cloud web job-wake POSTs, keyed by workspaceKey. Lives on ROLE=web only; ' +
+      'values are ids, not workspace-derived secrets, and flush in 10ms.',
+  },
+  {
+    file: 'apps/web/src/lib/server/jobs/wake.ts',
+    name: 'unsubscribe',
+    category: 'process-lifetime',
+    owner: 'Piece 6 (saas/queue-lease)',
+    reason: 'Start-once latch for the HTTP job-wake publisher on ROLE=web.',
+  },
+  {
     file: 'apps/web/src/lib/server/jobs/runner.ts',
     name: 'handlerMemo',
     category: 'process-lifetime',
@@ -961,6 +1066,17 @@ export const MODULE_STATE_LEDGER: readonly LedgerEntry[] = [
       "workspace's data.",
   },
   {
+    file: 'apps/web/src/lib/server/domains/channels/github-deliver.ts',
+    name: 'postedThisInvocation',
+    category: 'workspace-scoped-key',
+    keyedBy: 'conversationId',
+    reason:
+      'A one-tick latch so notify fan-out posts one GitHub comment per message. Keyed by ' +
+      'conversationId:messageId TypeIDs, which name one conversation in one workspace. A ' +
+      "cross-workspace hit cannot skip another workspace's send because those ids do not collide, " +
+      'and the entry is deleted at the next macrotask so it does not persist across requests.',
+  },
+  {
     file: 'apps/web/src/lib/shared/channels/registry.ts',
     name: 'DESCRIPTORS',
     category: 'process-lifetime',
@@ -985,11 +1101,39 @@ export const MODULE_STATE_LEDGER: readonly LedgerEntry[] = [
       'bytes the requesting workspace would have fetched.',
   },
   {
+    file: 'apps/web/src/integrations/slack/server/agent/turns.ts',
+    name: 'inflight',
+    category: 'workspace-scoped-key',
+    keyedBy: 'slackInflightTurnKey',
+    reason:
+      'AbortControllers for in-flight Slack turns, keyed by Slack team, channel and thread. A Slack ' +
+      'team is bound to one workspace install, so a cross-workspace hit misses (different team id) ' +
+      'rather than cancelling another tenant’s turn.',
+  },
+  {
     file: 'packages/email/src/index.ts',
     name: 'emailLogSink',
     category: 'process-lifetime',
     reason:
       'The installed email-log callback for this process. apps/web plugs it in once; every ' +
       'workspace uses the same function, which then writes through the active workspace scope.',
+  },
+  {
+    file: 'apps/web/src/lib/server/domains/user-attributes/user-attribute.service.ts',
+    name: 'service',
+    category: 'process-lifetime',
+    reason:
+      'A stateless closure bundle from createAttributeDefinitionService. Every method reads and ' +
+      'writes the ACTIVE workspace\u2019s user_attribute_definitions rows through the db proxy on ' +
+      'each call; it caches nothing, so a cross-workspace hit cannot return another tenant\u2019s data.',
+  },
+  {
+    file: 'apps/web/src/lib/server/domains/company-attributes/company-attribute.service.ts',
+    name: 'service',
+    category: 'process-lifetime',
+    reason:
+      'A stateless closure bundle from createAttributeDefinitionService. Every method reads and ' +
+      'writes the ACTIVE workspace\u2019s company_attribute_definitions rows through the db proxy ' +
+      'on each call; it caches nothing, so a cross-workspace hit cannot return another tenant\u2019s data.',
   },
 ]

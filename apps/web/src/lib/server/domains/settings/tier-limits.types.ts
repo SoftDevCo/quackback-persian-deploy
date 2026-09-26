@@ -43,6 +43,8 @@ export interface PlanNotice {
   /** When set the banner renders an action button linking here. */
   actionUrl?: string
   actionLabel?: string
+  /** Expired-trial strip: persistent red, no countdown. */
+  ended?: boolean
 }
 
 export interface TierLimits {

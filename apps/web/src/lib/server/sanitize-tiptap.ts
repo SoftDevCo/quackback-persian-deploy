@@ -11,8 +11,29 @@
  */
 
 import { isValidTypeId } from '@quackback/ids'
-import { sanitizeUrl, sanitizeImageUrl, safePositiveInt } from '@/lib/shared/utils/sanitize'
+import {
+  sanitizeUrl,
+  sanitizeImageUrl,
+  sanitizeMediaUrl,
+  safePositiveInt,
+} from '@/lib/shared/utils/sanitize'
 import { isTrustedAttachmentUrl } from '@/lib/server/storage/trusted-url'
+import { normalizeVideoMimeType } from '@/lib/shared/storage-config'
+
+function isExtraTrustedImageHost(rawSrc: string, extraHosts: string[] | undefined): boolean {
+  if (!extraHosts?.length) return false
+  try {
+    const u = new URL(rawSrc)
+    if (u.protocol !== 'https:') return false
+    const host = u.hostname.toLowerCase()
+    return extraHosts.some((allowed) => {
+      const a = allowed.toLowerCase()
+      return host === a || host.endsWith(`.${a}`)
+    })
+  } catch {
+    return false
+  }
+}
 import { ARTICLE_SLUG_RE } from '@/lib/shared/embeds/parse-embed-url'
 import type { TiptapContent } from '@/lib/shared/schemas/posts'
 
@@ -36,6 +57,7 @@ const ALLOWED_NODE_TYPES = new Set([
   'image',
   'resizableImage',
   'youtube',
+  'video',
   'horizontalRule',
   'hardBreak',
   'table',
@@ -103,6 +125,9 @@ export interface SanitizeTiptapOptions {
    * paste targets there, as in posts).
    */
   restrictImagesToTrustedOrigins?: boolean
+  /** Extra hostnames (or parent domains) allowed when image restriction is on.
+   *  GitHub ingest uses this for `*.githubusercontent.com` user-content images. */
+  extraTrustedImageHosts?: string[]
 }
 
 /**
@@ -144,7 +169,11 @@ function sanitizeAttrs(
       // Untrusted senders may only reference our own upload pipeline — mirror
       // the chatImage guard below. Clearing (not dropping) keeps the node
       // shape intact so the serializer renders nothing.
-      if (opts?.restrictImagesToTrustedOrigins && !isTrustedAttachmentUrl(rawSrc)) {
+      if (
+        opts?.restrictImagesToTrustedOrigins &&
+        !isTrustedAttachmentUrl(rawSrc) &&
+        !isExtraTrustedImageHost(rawSrc, opts.extraTrustedImageHosts)
+      ) {
         return { src: '', alt: '' }
       }
       const src = sanitizeImageUrl(rawSrc)
@@ -174,6 +203,18 @@ function sanitizeAttrs(
       const src = sanitizeImageUrl(rawSrc)
       if (!src) return { src: '', alt: '' }
       return { src, alt: String(attrs.alt ?? '').slice(0, 500) }
+    }
+
+    case 'video': {
+      const rawSrc = String(attrs.src ?? '')
+      // Native video is always an upload, never a remote embed. Keeping it on
+      // the workspace's storage origin prevents a post from becoming a hidden
+      // third-party tracking request.
+      if (!isTrustedAttachmentUrl(rawSrc)) return { src: '', mimeType: '', title: '' }
+      const src = sanitizeMediaUrl(rawSrc)
+      if (!src) return { src: '', mimeType: '', title: '' }
+      const mimeType = normalizeVideoMimeType(attrs.mimeType)
+      return { src, mimeType, title: String(attrs.title ?? '').slice(0, 500) }
     }
 
     case 'taskItem':

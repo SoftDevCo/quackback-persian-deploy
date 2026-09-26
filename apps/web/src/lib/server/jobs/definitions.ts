@@ -107,6 +107,17 @@ export interface JobDefinition {
   onFailure?: (job: ClaimedJob, error: unknown, permanent: boolean) => Promise<void>
 }
 
+/** A confirmed provider rejection can impose a minimum delay before the next attempt. */
+export class RetryAfterError extends Error {
+  constructor(
+    message: string,
+    readonly retryAfterMs: number
+  ) {
+    super(message)
+    this.name = 'RetryAfterError'
+  }
+}
+
 /**
  * A failure the handler knows a retry cannot fix — the reference's
  * `UnrecoverableError`. Fails the job terminally on the spot, whatever attempts
@@ -152,6 +163,36 @@ const DAY_MS = 86_400_000
  * cadence and failure behaviour do not move.
  */
 export const JOB_DEFINITIONS: readonly JobDefinition[] = [
+  {
+    name: 'slack-hook',
+    maxAttempts: 3,
+    concurrency: 1,
+    retentionMs: 0,
+    failedRetentionMs: 60 * 60_000,
+    handler: async () =>
+      (await import('@/lib/server/integrations/slack-hook-queue')).handleSlackHookJob,
+    onFailure: (job, error, permanent) =>
+      import('@/lib/server/integrations/sync/worker').then((m) =>
+        m.onIntegrationSyncFailure(job, error, permanent)
+      ),
+  },
+  {
+    name: 'integration-deliveries-sweep',
+    cron: '0 3 * * *',
+    handler: async () =>
+      (await import('@/lib/server/integrations/deliveries-sweep-queue')).runDeliveriesSweep,
+  },
+  {
+    name: 'integration-install-cleanup',
+    concurrency: 1,
+    handler: async () =>
+      (await import('@/lib/server/integrations/install-cleanup-queue')).runInstallCleanup,
+  },
+  {
+    name: 'integration-installs-backfill',
+    handler: async () =>
+      (await import('@/lib/server/integrations/installs-backfill-queue')).runInstallsBackfill,
+  },
   {
     name: 'anon-sweep',
     cron: '0 3 * * *',
@@ -277,6 +318,25 @@ export const JOB_DEFINITIONS: readonly JobDefinition[] = [
     handler: () => import('@/lib/server/events/hook-job').then((m) => m.runHookJob),
     onFailure: (job, error, permanent) =>
       import('@/lib/server/events/hook-job').then((m) => m.onHookJobFailure(job, error, permanent)),
+  },
+  {
+    name: 'integration-sync',
+    concurrency: 5,
+    leaseMs: 90_000,
+    maxAttempts: 6,
+    backoffMs: (attemptsMade) => hookRetryDelayMs(attemptsMade),
+    handler: () => import('@/lib/server/integrations/sync/queue').then((m) => m.runIntegrationSync),
+    onFailure: (job, error, permanent) =>
+      import('@/lib/server/integrations/sync/worker').then((m) =>
+        m.onIntegrationSyncFailure(job, error, permanent)
+      ),
+  },
+  {
+    name: 'integration-sync-sweep',
+    cron: '* * * * *',
+    concurrency: 1,
+    handler: () =>
+      import('@/lib/server/integrations/sync/sweep-queue').then((m) => m.sweepIntegrationSync),
   },
   {
     // Drains one job-owned outbox row. The row is written in emit()'s
@@ -409,6 +469,29 @@ export const JOB_DEFINITIONS: readonly JobDefinition[] = [
       import('@/lib/server/domains/principals/membership-sync-queue').then(
         (m) => m.runMembershipSync
       ),
+  },
+  {
+    // Monthly usage snapshot for hosted billing. Self-host without a hosted
+    // URL is a successful no-op. Hourly cron is the catch-up writer: the
+    // handler reports previousUtcMonth() of now (UTC), and a per-month dedupe
+    // key means the snapshot POSTs at most once. The first tick after a UTC
+    // month boundary, or after downtime, lands the missed close.
+    name: 'usage-report',
+    cron: '10 * * * *',
+    concurrency: 1,
+    maxAttempts: 10,
+    retryBackoffMs: 15 * 60_000,
+    // Hourly catch-up reuses `usage-report:<month>` for the whole previous
+    // month. Keep the succeeded row past that window so prune cannot reopen
+    // the month and POST the snapshot again.
+    retentionMs: 45 * DAY_MS,
+    failedRetentionMs: 45 * DAY_MS,
+    cronEnabled: () =>
+      import('@/lib/server/domains/billing/usage-report-queue').then((m) =>
+        m.isHostedBillingConfigured()
+      ),
+    handler: () =>
+      import('@/lib/server/domains/billing/usage-report-queue').then((m) => m.runUsageReport),
   },
 ]
 

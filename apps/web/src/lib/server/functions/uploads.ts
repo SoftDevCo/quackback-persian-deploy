@@ -218,13 +218,13 @@ export const getHeaderLogoUploadUrlFn = createServerFn({ method: 'POST' })
   })
 
 /**
- * Get a presigned URL for uploading the portal social share (OG) image.
+ * Get a presigned URL for uploading a custom OIDC identity provider's logo.
  */
-export const getPortalOgImageUploadUrlFn = createServerFn({ method: 'POST' })
+export const getIdentityProviderLogoUploadUrlFn = createServerFn({ method: 'POST' })
   .validator(imageUploadSchema)
   .handler(async ({ data }) => {
-    await requireAuth({ permission: PERMISSIONS.SETTINGS_MANAGE })
-    return presignedImageUpload(data, { label: 'portal og image', prefix: 'portal-og' })
+    await requireAuth({ permission: PERMISSIONS.AUTH_MANAGE })
+    return presignedImageUpload(data, { label: 'idp logo', prefix: 'idp-logos' })
   })
 
 /**

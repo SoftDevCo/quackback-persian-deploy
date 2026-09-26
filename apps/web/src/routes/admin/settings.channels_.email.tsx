@@ -1,13 +1,13 @@
-import { createFileRoute, Navigate } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useQuery, useSuspenseQuery } from '@tanstack/react-query'
 import { EnvelopeIcon } from '@heroicons/react/24/solid'
 import { PERMISSIONS } from '@/lib/shared/permissions'
 import { assertRoutePermission } from '@/lib/shared/route-permission'
-import type { FeatureFlags } from '@/lib/shared/types/settings'
+import { isProductEnabled } from '@/lib/shared/types/settings'
 import { settingsQueries } from '@/lib/client/queries/settings'
 import { useUpdateSpamFilterConfig } from '@/lib/client/mutations/settings'
-import { BackLink } from '@/components/ui/back-link'
+import { ChannelSettingsCrumb } from '@/components/admin/settings/channel-settings-crumb'
 import { PageHeader } from '@/components/shared/page-header'
 import { SettingsCard } from '@/components/admin/settings/settings-card'
 import { Badge } from '@/components/ui/badge'
@@ -20,32 +20,30 @@ import { fetchEmailAutoAckFn, updateEmailAutoAckFn } from '@/lib/server/function
 import { listRecentEmailLogFn } from '@/lib/server/functions/channel-accounts'
 
 export const Route = createFileRoute('/admin/settings/channels_/email')({
+  beforeLoad: ({ context }) => {
+    if (!isProductEnabled(context.settings?.featureFlags, 'support')) {
+      throw redirect({ to: '/admin/settings/general' })
+    }
+  },
   loader: async ({ context }) => {
     assertRoutePermission(context.permissions, PERMISSIONS.CHANNEL_ACCOUNT_MANAGE)
     await context.queryClient.ensureQueryData(settingsQueries.spamFilterConfig())
     return {}
   },
-  component: EmailChannelRoute,
+  component: EmailChannelPage,
 })
-
-function EmailChannelRoute() {
-  const { settings } = Route.useRouteContext()
-  const flags = settings?.featureFlags as FeatureFlags | undefined
-  if (!flags?.supportInbox) return <Navigate to="/admin/settings" />
-  return <EmailChannelPage />
-}
 
 function EmailChannelPage() {
   return (
     <div className="space-y-6 max-w-3xl">
-      <div className="lg:hidden">
-        <BackLink to="/admin/settings/channels">Channels</BackLink>
+      <div className="space-y-1.5">
+        <ChannelSettingsCrumb page="Email" />
+        <PageHeader
+          icon={EnvelopeIcon}
+          title="Email"
+          description="Receive and send support conversations from the customer's mailbox."
+        />
       </div>
-      <PageHeader
-        icon={EnvelopeIcon}
-        title="Email"
-        description="Receive and send support conversations from the customer's mailbox."
-      />
       <EmailTransportCard />
       <EmailChannelSettings />
       <TrustedSendersSection />

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { createFileRoute, Link, useRouteContext } from '@tanstack/react-router'
-import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
+import { useQuery, useSuspenseQuery } from '@tanstack/react-query'
 import {
   ArrowLeftIcon,
   ArrowPathIcon,
@@ -9,24 +9,30 @@ import {
   CodeBracketIcon,
 } from '@heroicons/react/24/outline'
 import { toast } from 'sonner'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { CollapsibleSection } from '@/components/ui/collapsible'
 import { PageHeader } from '@/components/shared/page-header'
+import { WarningBox } from '@/components/shared/warning-box'
 import { SettingsCard } from '@/components/admin/settings/settings-card'
+import { WidgetLastDetected } from '@/components/admin/settings/widget/widget-last-detected'
+import { WidgetSigningSecret } from '@/components/admin/settings/widget/widget-signing-secret'
 import { copyWithFallback } from '@/components/admin/activation-action-button'
 import { CopyAgentPromptButton } from '@/components/admin/settings/widget/copy-agent-prompt-button'
 import {
   WIDGET_SKILL_REPO,
   buildWidgetInstallPrompt,
   buildWidgetInstallSnippet,
-  maskWidgetSecretInPrompt,
 } from '@/lib/shared/widget/install-prompt'
-import { widgetOriginVerifiedLabel } from '@/lib/shared/widget/widget-origin'
+import { widgetInstallPresence, widgetOriginVerifiedLabel } from '@/lib/shared/widget/widget-origin'
+import {
+  widgetConnectedStatusLabel,
+  widgetSdkUpdateDescription,
+} from '@/lib/shared/widget/sdk-version'
 import { settingsQueries } from '@/lib/client/queries/settings'
 import { adminQueries } from '@/lib/client/queries/admin'
-import { configureWidgetForActivationFn } from '@/lib/server/functions/settings'
+import { useMintWidgetInstallCode, useUpdateWidgetConfig } from '@/lib/client/mutations/settings'
 import { PERMISSIONS } from '@/lib/shared/permissions'
 import { assertRoutePermission } from '@/lib/shared/route-permission'
 
@@ -34,78 +40,175 @@ export const Route = createFileRoute('/admin/settings/widget/install')({
   loader: async ({ context }) => {
     assertRoutePermission(context.permissions, PERMISSIONS.SETTINGS_MANAGE)
     await Promise.all([
-      context.queryClient.ensureQueryData(settingsQueries.widgetConfig()),
       context.queryClient.ensureQueryData(settingsQueries.widgetSecret()),
+      context.queryClient.ensureQueryData(settingsQueries.widgetConfig()),
       context.queryClient.ensureQueryData(adminQueries.onboardingStatus()),
     ])
   },
   component: WidgetInstallPage,
 })
 
-function WidgetInstallPage() {
-  const queryClient = useQueryClient()
+export function WidgetInstallPage() {
   const { baseUrl } = useRouteContext({ from: '__root__' })
-  const configQuery = useSuspenseQuery(settingsQueries.widgetConfig())
   const secretQuery = useSuspenseQuery(settingsQueries.widgetSecret())
+  const widgetConfigQuery = useSuspenseQuery(settingsQueries.widgetConfig())
+  const updateWidgetConfig = useUpdateWidgetConfig()
+  const mintInstallCode = useMintWidgetInstallCode()
+  const [enabled, setEnabled] = useState(Boolean(widgetConfigQuery.data.enabled))
   const statusQuery = useQuery({
     ...adminQueries.onboardingStatus(),
-    refetchInterval: (query) => (query.state.data?.hasWidgetInstalled ? false : 5_000),
+    refetchInterval: (query) => {
+      const data = query.state.data
+      if (!data?.hasWidgetInstalled) return 5_000
+      if (data.widgetSdkNeedsUpdate) return 15_000
+      return false
+    },
   })
   const status = statusQuery.data!
   const mode = status.useCase === 'customer_support' ? 'messenger' : 'feedback'
-  const config = configQuery.data
-  const configured =
-    config.enabled &&
-    (mode === 'messenger'
-      ? Boolean(config.tabs?.messenger && config.messenger?.enabled)
-      : Boolean(config.tabs?.feedback && config.defaultBoard))
-  const [copying, setCopying] = useState<'snippet' | 'secret' | null>(null)
-  const [identifyUsers, setIdentifyUsers] = useState(true)
-  const snippet = useMemo(
-    () =>
-      buildWidgetInstallSnippet({
-        instanceUrl: baseUrl ?? '',
-        identify: identifyUsers,
-      }),
-    [baseUrl, identifyUsers]
-  )
-  const agentPrompt = useMemo(
-    () =>
-      buildWidgetInstallPrompt({
-        instanceUrl: baseUrl ?? '',
-        widgetSecret: secretQuery.data,
-      }),
-    [baseUrl, secretQuery.data]
-  )
-  const previewPrompt = useMemo(
-    () => maskWidgetSecretInPrompt(agentPrompt, secretQuery.data),
-    [agentPrompt, secretQuery.data]
-  )
-
-  const configure = useMutation({
-    mutationFn: () => configureWidgetForActivationFn({ data: { mode } }),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['settings', 'widgetConfig'] }),
-        queryClient.invalidateQueries({ queryKey: ['admin', 'onboarding'] }),
-      ])
-      toast.success(mode === 'messenger' ? 'Messenger enabled' : 'Feedback widget enabled')
-    },
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : 'Couldn’t configure the widget'),
+  const presence = widgetInstallPresence({
+    connected: Boolean(status.hasWidgetInstalled),
+    enabled: Boolean(status.hasWidgetEnabled),
+    originHost: status.widgetOriginHost,
   })
+  const installed = presence.tone !== 'idle'
+  const [copyingSnippet, setCopyingSnippet] = useState(false)
+  const snippet = useMemo(() => buildWidgetInstallSnippet(baseUrl ?? ''), [baseUrl])
 
-  async function copy(kind: 'snippet' | 'secret', text: string) {
-    setCopying(kind)
+  async function agentPrompt(): Promise<string> {
     try {
-      await copyWithFallback(text)
+      const minted = await mintInstallCode.mutateAsync()
+      return buildWidgetInstallPrompt(baseUrl ?? '', minted.code)
+    } catch {
+      toast.error('Could not copy the install prompt. Try again.')
+      return ''
+    }
+  }
+
+  async function copySnippet() {
+    setCopyingSnippet(true)
+    try {
+      await copyWithFallback(snippet)
       toast.success('Copied')
     } catch {
       toast.error('Copy failed. Select the text and copy it manually.')
     } finally {
-      setCopying(null)
+      setCopyingSnippet(false)
     }
   }
+
+  const visibilityToggle = (
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-border/50 p-4">
+      <div className="min-w-0">
+        <Label htmlFor="show-on-website" className="cursor-pointer text-sm font-medium">
+          Show on your website
+        </Label>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          When this is off, visitors won&apos;t see the launcher.
+        </p>
+      </div>
+      <Switch
+        id="show-on-website"
+        checked={enabled}
+        disabled={updateWidgetConfig.isPending}
+        onCheckedChange={(checked) => {
+          const previous = enabled
+          setEnabled(checked)
+          void updateWidgetConfig
+            .mutateAsync({ enabled: checked })
+            .then(() => {
+              toast.success(
+                checked ? 'Widget is visible on your site' : 'Widget hidden from visitors'
+              )
+            })
+            .catch(() => {
+              setEnabled(previous)
+              toast.error('Could not update widget visibility')
+            })
+        }}
+        aria-label="Show on your website"
+      />
+    </div>
+  )
+
+  const agentCta = (
+    <>
+      <CopyAgentPromptButton getPrompt={agentPrompt} disabled={mintInstallCode.isPending} />
+      <p className="mt-3 text-xs text-muted-foreground">
+        The agent installs the widget and turns it on. You never paste the signing secret.{' '}
+        <a
+          href={WIDGET_SKILL_REPO}
+          target="_blank"
+          rel="noreferrer"
+          className="underline underline-offset-2"
+        >
+          What the agent does
+        </a>
+      </p>
+    </>
+  )
+
+  const handInstall = (
+    <CollapsibleSection
+      title="Install without an agent"
+      description="Copy the snippet, or add the npm package."
+    >
+      <pre className="max-h-72 overflow-auto rounded-lg bg-zinc-950 p-4 text-xs text-zinc-100">
+        <code>{snippet}</code>
+      </pre>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <Button onClick={() => void copySnippet()} disabled={copyingSnippet}>
+          <ClipboardDocumentIcon className="h-4 w-4" />
+          {copyingSnippet ? 'Copying…' : 'Copy snippet'}
+        </Button>
+      </div>
+      <p className="mt-3 text-xs text-muted-foreground">
+        Or add <code className="rounded bg-muted px-1 py-0.5">@quackback/widget</code> and call{' '}
+        <code className="rounded bg-muted px-1 py-0.5">Quackback.init</code> with this instance URL.
+      </p>
+    </CollapsibleSection>
+  )
+
+  const secretBlock = secretQuery.data ? (
+    <WidgetSigningSecret secret={secretQuery.data} />
+  ) : (
+    <p className="text-sm text-muted-foreground">
+      Couldn&apos;t load the signing secret. Refresh this page.
+    </p>
+  )
+
+  const connectionBody =
+    presence.tone === 'live' && status.widgetSdkNeedsUpdate ? (
+      <div className="space-y-2">
+        <WarningBox
+          variant="warning"
+          title={widgetConnectedStatusLabel({
+            hasWidgetInstalled: true,
+            widgetSdkNeedsUpdate: true,
+          })}
+          description="Copy a fresh prompt so your site picks up the latest widget."
+        />
+        <WidgetLastDetected at={status.widgetLastDetectedAt} />
+      </div>
+    ) : presence.tone === 'live' ? (
+      <div className="space-y-0.5">
+        <p className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400">
+          <CheckCircleIcon className="h-5 w-5" /> Widget connection verified
+        </p>
+        <WidgetLastDetected at={status.widgetLastDetectedAt} />
+      </div>
+    ) : presence.tone === 'detected' ? (
+      <div className="space-y-2">
+        <p className="text-sm text-muted-foreground">
+          The widget is installed but hidden. Turn on Show on your website so visitors can see it.
+        </p>
+        <WidgetLastDetected at={status.widgetLastDetectedAt} />
+      </div>
+    ) : (
+      <p className="flex items-center gap-2 text-sm text-muted-foreground">
+        <ArrowPathIcon className="h-4 w-4 animate-spin" /> Waiting for the widget to load…
+      </p>
+    )
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 pb-12">
@@ -117,124 +220,88 @@ function WidgetInstallPage() {
       </Button>
       <PageHeader
         icon={CodeBracketIcon}
-        title={mode === 'messenger' ? 'Connect Messenger' : 'Install feedback widget'}
-        description="Copy a prompt that installs the Quackback skill and wires the widget into your codebase."
+        title={
+          installed
+            ? mode === 'messenger'
+              ? 'Messenger on your site'
+              : 'Widget on your site'
+            : mode === 'messenger'
+              ? 'Add Messenger to your site'
+              : 'Add the widget to your site'
+        }
+        description={
+          installed
+            ? 'Change who can see it, or copy a new prompt for another site.'
+            : 'Paste a prompt into the coding agent in your app. Then open a page to confirm it loaded.'
+        }
       />
 
-      <SettingsCard
-        title="1. Enable the channel"
-        description={
-          mode === 'messenger'
-            ? 'Turns on the widget, Messenger, and the Messages tab together.'
-            : 'Turns on the widget and Feedback tab with your public board selected.'
-        }
-      >
-        {configured ? (
-          <p className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400">
-            <CheckCircleIcon className="h-5 w-5" /> Channel enabled
-          </p>
-        ) : (
-          <Button onClick={() => configure.mutate()} disabled={configure.isPending}>
-            {configure.isPending && <ArrowPathIcon className="h-4 w-4 animate-spin" />}
-            {mode === 'messenger' ? 'Enable Messenger' : 'Enable feedback widget'}
-          </Button>
-        )}
-      </SettingsCard>
-
-      {configured && (
-        <SettingsCard
-          title="2. Ask your agent"
-          description="Paste this into Claude, Cursor, Codex, or Copilot. It fetches the install-widget skill, detects your stack, and identifies signed-in users."
-        >
-          <CopyAgentPromptButton prompt={agentPrompt} />
-          <p className="mt-3 text-xs text-muted-foreground">
-            The prompt points your agent at the{' '}
-            <a
-              href={WIDGET_SKILL_REPO}
-              target="_blank"
-              rel="noreferrer"
-              className="underline underline-offset-2"
-            >
-              install-widget skill
-            </a>{' '}
-            and includes your widget secret. Paste it into a local agent only.
-          </p>
-          <pre className="mt-4 max-h-72 overflow-auto rounded-lg border border-border/50 bg-muted/30 p-3 text-xs font-mono leading-relaxed text-foreground whitespace-pre-wrap">
-            {previewPrompt}
-          </pre>
-        </SettingsCard>
-      )}
-
-      {configured && (
-        <SettingsCard
-          title="Or add the snippet yourself"
-          description="Paste this before the closing body tag if you would rather install it by hand."
-        >
-          <div className="mb-4 flex items-center justify-between gap-4 rounded-lg border border-border/50 p-4">
-            <div className="min-w-0">
-              <Label htmlFor="identify-users" className="cursor-pointer text-sm font-medium">
-                Identify signed-in users
-                <Badge size="sm" shape="pill" variant="secondary">
-                  Recommended
-                </Badge>
-              </Label>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Attach conversations to a person. Your server signs a short-lived token; the browser
-                only sends that token, never raw id or email.
-              </p>
+      {installed ? (
+        <>
+          <SettingsCard
+            title="Status"
+            description={
+              status.widgetSdkNeedsUpdate
+                ? widgetSdkUpdateDescription(
+                    status.widgetSdkVersion,
+                    status.currentWidgetSdkVersion
+                  )
+                : widgetOriginVerifiedLabel(status.widgetOriginHost)
+            }
+          >
+            <div className="space-y-4">
+              {connectionBody}
+              {visibilityToggle}
             </div>
-            <Switch
-              id="identify-users"
-              checked={identifyUsers}
-              onCheckedChange={setIdentifyUsers}
-              aria-label="Identify signed-in users"
-            />
-          </div>
-          <pre className="max-h-72 overflow-auto rounded-lg bg-zinc-950 p-4 text-xs text-zinc-100">
-            <code>{snippet}</code>
-          </pre>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              onClick={() => copy('snippet', snippet)}
-              disabled={copying !== null}
-            >
-              <ClipboardDocumentIcon className="h-4 w-4" />
-              {copying === 'snippet' ? 'Copying…' : 'Copy installation snippet'}
-            </Button>
-            {identifyUsers && secretQuery.data && (
-              <Button
-                variant="outline"
-                onClick={() => copy('secret', secretQuery.data!)}
-                disabled={copying !== null}
-              >
-                <ClipboardDocumentIcon className="h-4 w-4" />
-                {copying === 'secret' ? 'Copying…' : 'Copy widget signing secret'}
-              </Button>
-            )}
-          </div>
-        </SettingsCard>
-      )}
+          </SettingsCard>
 
-      {configured && (
-        <SettingsCard
-          title="3. Verify the connection"
-          description={
-            status.hasWidgetInstalled
-              ? widgetOriginVerifiedLabel(status.widgetOriginHost)
-              : 'Waiting for the first request from your deployed site. Checking every five seconds.'
-          }
-        >
-          {status.hasWidgetInstalled ? (
-            <p className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400">
-              <CheckCircleIcon className="h-5 w-5" /> Widget connection verified
-            </p>
-          ) : (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <ArrowPathIcon className="h-4 w-4 animate-spin" /> Waiting for installation…
-            </p>
-          )}
-        </SettingsCard>
+          <SettingsCard
+            title="Add to another site"
+            description="Or copy a fresh prompt to update the widget."
+          >
+            {agentCta}
+          </SettingsCard>
+
+          <SettingsCard
+            title="Signing secret"
+            description="Only if you install by hand or need to rotate it."
+          >
+            {secretBlock}
+          </SettingsCard>
+
+          <SettingsCard contentClassName="p-0 sm:p-0">{handInstall}</SettingsCard>
+        </>
+      ) : (
+        <>
+          <SettingsCard
+            title="1. Copy the prompt for your agent"
+            description="Paste it into the coding agent in your app."
+          >
+            {agentCta}
+          </SettingsCard>
+
+          <SettingsCard
+            title="2. Open a page on your site"
+            description="After the agent finishes. Localhost is fine."
+          >
+            <div className="space-y-4">
+              {connectionBody}
+              {visibilityToggle}
+            </div>
+          </SettingsCard>
+
+          <SettingsCard contentClassName="p-0 sm:p-0">
+            {handInstall}
+            <div className="border-t border-border/50">
+              <CollapsibleSection
+                title="Signing secret"
+                description="Skip this unless you are installing by hand."
+              >
+                {secretBlock}
+              </CollapsibleSection>
+            </div>
+          </SettingsCard>
+        </>
       )}
     </div>
   )

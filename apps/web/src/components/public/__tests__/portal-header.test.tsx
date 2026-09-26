@@ -5,14 +5,27 @@ import { IntlProvider } from 'react-intl'
 
 // vi.hoisted ensures these mocks are available when the vi.mock factory runs
 // (vi.mock calls are hoisted above imports by the Vitest transformer).
-const { mockGetRouteContext, mockOpenAuthPopover, mockOauth2, mockResolveSole, mockHasAny } =
-  vi.hoisted(() => ({
-    mockGetRouteContext: vi.fn(),
-    mockOpenAuthPopover: vi.fn(),
-    mockOauth2: vi.fn(),
-    mockResolveSole: vi.fn((): string | null => null),
-    mockHasAny: vi.fn((): boolean => false),
-  }))
+const {
+  mockGetRouteContext,
+  mockOpenAuthPopover,
+  mockSocial,
+  mockResolveSole,
+  mockHasAny,
+  mockHasDistinctSignup,
+  mockInvalidateQueries,
+  mockRemoveQueries,
+  mockSignOut,
+} = vi.hoisted(() => ({
+  mockGetRouteContext: vi.fn(),
+  mockOpenAuthPopover: vi.fn(),
+  mockSocial: vi.fn(),
+  mockResolveSole: vi.fn((): string | null => null),
+  mockHasAny: vi.fn((): boolean => false),
+  mockHasDistinctSignup: vi.fn((): boolean => true),
+  mockInvalidateQueries: vi.fn(() => Promise.resolve()),
+  mockRemoveQueries: vi.fn(() => Promise.resolve()),
+  mockSignOut: vi.fn(() => Promise.resolve()),
+}))
 
 vi.mock('@tanstack/react-router', () => ({
   useRouter: () => ({ invalidate: vi.fn(), navigate: vi.fn() }),
@@ -47,11 +60,15 @@ vi.mock('@/components/auth/auth-popover-context', () => ({
 vi.mock('@/components/auth/oauth-buttons', () => ({
   hasAnyPortalAuthMethod: () => mockHasAny(),
   resolveSoleOidcProvider: () => mockResolveSole(),
+  hasDistinctSignup: () => mockHasDistinctSignup(),
 }))
 
 vi.mock('@tanstack/react-query', () => ({
   useQuery: () => ({ data: null }),
-  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+  useQueryClient: () => ({
+    invalidateQueries: mockInvalidateQueries,
+    removeQueries: mockRemoveQueries,
+  }),
 }))
 
 vi.mock('@/lib/server/functions/conversation', () => ({
@@ -63,8 +80,8 @@ vi.mock('@/lib/client/hooks/use-auth-broadcast', () => ({
 }))
 
 vi.mock('@/lib/client/auth-client', () => ({
-  signOut: vi.fn(),
-  authClient: { signIn: { oauth2: mockOauth2 } },
+  signOut: mockSignOut,
+  authClient: { signIn: { social: mockSocial } },
 }))
 
 vi.mock('@/components/notifications', () => ({
@@ -76,6 +93,7 @@ vi.mock('@/components/shared/user-stats', () => ({
 }))
 
 import { PortalHeader } from '../portal-header'
+import { VIEWER_SCOPED_PORTAL_QUERY_KEYS } from '@/lib/client/queries/portal'
 
 const loggedInSession = {
   user: {
@@ -117,15 +135,14 @@ describe('PortalHeader — Admin dropdown item', () => {
     // The avatar button is the only button in the header (theme toggle off,
     // NotificationBell mocked away, standalone Admin renders as a link).
     const trigger = screen.getByRole('button')
-    // Radix DropdownMenuTrigger opens on pointerDown (not click).
-    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
+    fireEvent.click(trigger)
     expect(await screen.findByRole('menuitem', { name: /admin/i })).toBeInTheDocument()
   })
 
   it('hides the Admin item for portal users', async () => {
     renderHeader({ userRole: 'user', isLoggedIn: true })
     const trigger = screen.getByRole('button')
-    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
+    fireEvent.click(trigger)
     // Wait for the dropdown to open (Settings will appear), then confirm
     // no Admin menuitem is present.
     await screen.findByRole('menuitem', { name: /settings/i })
@@ -133,12 +150,49 @@ describe('PortalHeader — Admin dropdown item', () => {
   })
 })
 
+describe('PortalHeader — sign-out cache hygiene', () => {
+  beforeEach(() => {
+    mockInvalidateQueries.mockClear()
+    mockRemoveQueries.mockClear()
+    mockSignOut.mockClear()
+  })
+  afterEach(() => cleanup())
+
+  it('removes (not merely invalidates) every viewer-scoped cache so internal tags do not outlive a team session', async () => {
+    renderHeader({ userRole: 'admin', isLoggedIn: true })
+    fireEvent.click(screen.getByRole('button'))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /log out|sign out/i }))
+    await vi.waitFor(() => expect(mockSignOut).toHaveBeenCalled())
+
+    // Loaders read through ensureQueryData, which serves retained-but-stale
+    // data, and a reset would restore initialData; only removal actually
+    // drops the team-scoped payloads.
+    await vi.waitFor(() => {
+      const removedKeys = mockRemoveQueries.mock.calls.map(
+        (call) => (call as unknown as [{ queryKey: unknown[] }])[0].queryKey
+      )
+      expect(removedKeys).toEqual(expect.arrayContaining([...VIEWER_SCOPED_PORTAL_QUERY_KEYS]))
+    })
+    expect(VIEWER_SCOPED_PORTAL_QUERY_KEYS).toEqual(
+      expect.arrayContaining([
+        ['portal', 'tags'],
+        ['portal', 'data'],
+        ['portal', 'post'],
+        ['portal', 'roadmaps'],
+        ['portal', 'roadmapPosts'],
+        ['publicPosts'],
+      ])
+    )
+  })
+})
+
 describe('PortalHeader — single-IdP redirect', () => {
   beforeEach(() => {
     mockOpenAuthPopover.mockClear()
-    mockOauth2.mockClear()
+    mockSocial.mockClear()
     mockHasAny.mockReturnValue(true) // the portal has a usable sign-in method
     mockResolveSole.mockReturnValue(null)
+    mockHasDistinctSignup.mockReturnValue(true)
   })
   afterEach(() => cleanup())
 
@@ -146,7 +200,7 @@ describe('PortalHeader — single-IdP redirect', () => {
     mockResolveSole.mockReturnValue('oidc_entra')
     renderHeader({ userRole: null, isLoggedIn: false })
     fireEvent.click(screen.getByRole('button', { name: /log in/i }))
-    expect(mockOauth2).toHaveBeenCalledWith(expect.objectContaining({ providerId: 'oidc_entra' }))
+    expect(mockSocial).toHaveBeenCalledWith(expect.objectContaining({ provider: 'oidc_entra' }))
     expect(mockOpenAuthPopover).not.toHaveBeenCalled()
   })
 
@@ -155,6 +209,29 @@ describe('PortalHeader — single-IdP redirect', () => {
     renderHeader({ userRole: null, isLoggedIn: false })
     fireEvent.click(screen.getByRole('button', { name: /log in/i }))
     expect(mockOpenAuthPopover).toHaveBeenCalledWith(expect.objectContaining({ mode: 'login' }))
-    expect(mockOauth2).not.toHaveBeenCalled()
+    expect(mockSocial).not.toHaveBeenCalled()
+  })
+})
+
+describe('PortalHeader — Sign up button visibility', () => {
+  beforeEach(() => {
+    mockOpenAuthPopover.mockClear()
+    mockHasAny.mockReturnValue(true)
+    mockResolveSole.mockReturnValue(null)
+  })
+  afterEach(() => cleanup())
+
+  it('shows both Log in and Sign up when sign-up is a distinct flow', () => {
+    mockHasDistinctSignup.mockReturnValue(true)
+    renderHeader({ userRole: null, isLoggedIn: false })
+    expect(screen.getByRole('button', { name: /log in/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /sign up/i })).toBeInTheDocument()
+  })
+
+  it('shows only Log in when sign-up would lead to the same form', () => {
+    mockHasDistinctSignup.mockReturnValue(false)
+    renderHeader({ userRole: null, isLoggedIn: false })
+    expect(screen.getByRole('button', { name: /log in/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /sign up/i })).toBeNull()
   })
 })

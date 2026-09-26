@@ -14,6 +14,7 @@
  */
 
 import { cancelJob, enqueueJob, enqueueJobs } from '@/lib/server/jobs/job-queue'
+import { queueHookSync } from '@/lib/server/integrations/sync/hooks'
 import { HOOK_RETRY_ATTEMPTS } from './retry-schedule'
 import type { HookJobData } from './hook-job'
 import type { EventData } from './types'
@@ -101,20 +102,23 @@ export async function processEvent(event: EventData): Promise<void> {
 }
 
 /**
- * Enqueue pre-resolved hook jobs with caller-supplied deterministic keys.
- * `event-dispatch` passes `jobId = ${eventId}:${sink}:${targetKey}` so a
- * retried dispatch re-enqueues the SAME key, which the unique index on
- * `(queue, dedupe_key)` turns into a no-op (and `hook_deliveries` catches
- * the rest) — the load-bearing mechanism for effectively-once delivery.
- * One statement, whatever the fan-out.
+ * Route integration targets through the durable sync ledger; ordinary hooks
+ * retain the event queue. The relay can supply its transaction so its receipt
+ * and all delivery intents commit together. Stable operation keys survive
+ * queue pruning, while ordinary jobs deduplicate by the relay's jobId.
  */
 export async function enqueueHookJobsWithIds(
   jobs: Array<{ name: string; data: HookJobData; jobId: string }>,
   opts?: { executor?: import('@/lib/server/jobs/job-queue').JobSqlExecutor }
 ): Promise<void> {
   if (jobs.length === 0) return
+  const ordinary = jobs.filter(({ data }) => typeof data.config.integrationId !== 'string')
+  for (const { data } of jobs) {
+    if (typeof data.config.integrationId === 'string') await queueHookSync(data, opts?.executor)
+  }
+  if (!ordinary.length) return
   await enqueueJobs(
-    jobs.map(({ data, jobId }) => ({
+    ordinary.map(({ data, jobId }) => ({
       queue: EVENTS_QUEUE,
       payload: data as unknown as Record<string, unknown>,
       dedupeKey: jobId,

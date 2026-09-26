@@ -42,7 +42,7 @@ export type {
 } from './settings.types'
 
 // Welcome card constants (no DB dependency)
-export { PORTAL_WELCOME_CARD_TITLE_MAX } from './settings.types'
+export { EMPTY_WELCOME_BODY } from './settings.types'
 
 // Default config values (no DB dependency)
 export {
@@ -74,12 +74,14 @@ export type {
   CloudConfig,
   BillingStatus,
   PlanId,
+  PlanIdAlias,
   PlanDefinition,
   EntitlementKey,
   EntitlementDefinition,
 } from './cloud/cloud.types'
 export {
   PLAN_IDS,
+  PLAN_ID_ALIASES,
   PLAN_CATALOGUE,
   PLAN_DEFINITIONS,
   ENTITLEMENTS,
@@ -87,5 +89,6 @@ export {
   DISABLED_CLOUD_CONFIG,
   minimumPlanFor,
   isPlanId,
+  canonicalPlanId,
   isEntitlementKey,
 } from './cloud/cloud.types'

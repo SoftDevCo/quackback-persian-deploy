@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useForm } from 'react-hook-form'
-import type { UseMutationResult } from '@tanstack/react-query'
+import { useQueryClient, type UseMutationResult } from '@tanstack/react-query'
 import { standardSchemaResolver } from '@hookform/resolvers/standard-schema'
 import { commentSchema, type CommentInput } from '@/lib/shared/schemas/comments'
 import { Button } from '@/components/ui/button'
@@ -18,6 +18,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { StatusBadge } from '@/components/ui/status-badge'
 import { CheckIcon, LockClosedIcon } from '@heroicons/react/24/solid'
 import { signOut } from '@/lib/client/auth-client'
+import { removeViewerScopedPortalQueries } from '@/lib/client/queries/portal'
 import { useRouter, useRouteContext } from '@tanstack/react-router'
 import { useAuthBroadcast } from '@/lib/client/hooks/use-auth-broadcast'
 import { cn } from '@/lib/shared/utils'
@@ -77,6 +78,7 @@ export function CommentForm({
 }: CommentFormProps) {
   const intl = useIntl()
   const router = useRouter()
+  const queryClient = useQueryClient()
   const { session } = useRouteContext({ from: '__root__' })
   const [error, setError] = useState<string | null>(null)
   const [selectedStatusId, setSelectedStatusId] = useState<string | null>(null)
@@ -226,6 +228,7 @@ export function CommentForm({
                         disabled={isSubmitting}
                         features={COMMENT_EDITOR_FEATURES}
                         onImageUpload={onImageUpload}
+                        onVideoUpload={onImageUpload}
                         placeholder={intl.formatMessage({
                           id: 'portal.commentForm.placeholder',
                           defaultMessage: 'Write a comment...',
@@ -402,7 +405,13 @@ export function CommentForm({
                   })}
                 </Button>
               )}
-              <Button type="submit" size="sm" disabled={isSubmitting} className="h-7 text-xs">
+              <Button
+                type="button"
+                size="sm"
+                disabled={isSubmitting}
+                className="h-7 text-xs"
+                onClick={() => void form.handleSubmit(onSubmit)()}
+              >
                 {isSubmitting
                   ? intl.formatMessage({
                       id: 'portal.commentForm.submitting',
@@ -460,6 +469,7 @@ export function CommentForm({
                     disabled={isSubmitting}
                     features={COMMENT_EDITOR_FEATURES}
                     onImageUpload={onImageUpload}
+                    onVideoUpload={onImageUpload}
                     placeholder={intl.formatMessage({
                       id: 'portal.commentForm.placeholder',
                       defaultMessage: 'Write a comment...',
@@ -505,6 +515,7 @@ export function CommentForm({
                     signOut({
                       fetchOptions: {
                         onSuccess: () => {
+                          removeViewerScopedPortalQueries(queryClient)
                           router.invalidate()
                         },
                       },
@@ -560,7 +571,12 @@ export function CommentForm({
               </Tooltip>
             </TooltipProvider>
           )}
-          <Button type="submit" size="sm" disabled={isSubmitting}>
+          <Button
+            type="button"
+            size="sm"
+            disabled={isSubmitting}
+            onClick={() => void form.handleSubmit(onSubmit)()}
+          >
             {isSubmitting
               ? intl.formatMessage({
                   id: 'portal.commentForm.submitting',

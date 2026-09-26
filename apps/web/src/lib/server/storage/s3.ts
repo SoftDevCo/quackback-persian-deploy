@@ -47,13 +47,18 @@
  * traffic:
  *
  * ```
- * aws s3 mv s3://<bucket>/ s3://<bucket>/w/<settings.id>/ --recursive --exclude 'w/*'
+ * aws s3 mv s3://<bucket>/ s3://<bucket>/w/<workspace TypeID>/ --recursive --exclude 'w/*'
  * ```
+ *
+ * The prefix is `fromUuid('workspace', settings.id)` (for example
+ * `workspace_01kxddf1jaf6cr22gerxt7z9gg`). `SELECT id FROM settings` returns
+ * the UUID spelling; copying under that UUID leaves every restored object
+ * unreadable. Convert the UUID before composing `w/<prefix>/`.
  *
  * It is a server-side copy: no bytes leave the bucket, the stored keys do not
  * change, and no content is rewritten, because the namespace appears in neither
  * the database nor any URL. Every affected install holds exactly one workspace
- * per bucket, so `<settings.id>` is unambiguous — `SELECT id FROM settings`.
+ * per bucket, so that TypeID is unambiguous.
  *
  * **Note what this repository must NOT grow to make that convenient.** Listing
  * and deleting at the bucket root is correct against a bucket that holds one
@@ -67,7 +72,12 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import type { WorkspaceId } from '@quackback/ids'
 import { config } from '@/lib/server/config'
-import { sniffImageMime } from '@/lib/server/content/magic-bytes'
+import {
+  canonicalizeVideoMime,
+  sniffImageMime,
+  sniffVideoMime,
+} from '@/lib/server/content/magic-bytes'
+import { resolveVideoMimeType } from '@/lib/shared/storage-config'
 import {
   getCurrentWorkspace,
   getWorkspaceStorageCredential,
@@ -77,7 +87,7 @@ import {
   currentWorkspaceNamespace,
   SINGLE_WORKSPACE_NAMESPACE,
 } from '@/lib/server/workspaces/workspace-keyed'
-import { absolutizeOffHostAssetUrl } from './asset-url'
+import { absolutizeOffHostAssetUrl, storedAssetKeyFromSrc } from './asset-url'
 import { composeNamespacedKey, workspaceNamespace } from './namespace'
 import { currentWorkspaceId } from './workspace-scope'
 
@@ -307,6 +317,8 @@ interface BucketKeyInput {
   Key: string
   ContentType?: string
   Body?: Buffer | Uint8Array
+  Range?: string
+  ResponseContentDisposition?: string
 }
 
 /** Command instance produced by S3 command constructors. */
@@ -467,7 +479,7 @@ export interface WorkspaceStorage {
   objectName(key: string): string
   presignPut(key: string, contentType: string, expiresIn: number): Promise<string>
   put(key: string, body: Buffer | Uint8Array, contentType: string): Promise<void>
-  get(key: string): Promise<S3ObjectResult>
+  get(key: string, range?: string): Promise<S3ObjectResult>
   presignGet(key: string, expiresIn: number, downloadName?: string): Promise<string>
   remove(key: string): Promise<void>
 }
@@ -546,20 +558,26 @@ function workspaceStorage(selfReportedWorkspaceId: WorkspaceId): WorkspaceStorag
       )
     },
 
-    async get(key) {
+    async get(key, range) {
       const Key = objectName(key)
       const client = await getS3Client(connection)
       const { GetObjectCommand } = await getS3Module()
       const response = (await client.send(
-        new GetObjectCommand({ Bucket: connection.bucket, Key })
+        new GetObjectCommand({ Bucket: connection.bucket, Key, ...(range ? { Range: range } : {}) })
       )) as {
         Body?: { transformToWebStream(): ReadableStream<Uint8Array> }
         ContentType?: string
+        ContentLength?: number
+        ContentRange?: string
+        AcceptRanges?: string
       }
       if (!response.Body) throw new Error(`S3 object not found: ${key}`)
       return {
         body: response.Body.transformToWebStream(),
         contentType: response.ContentType || 'application/octet-stream',
+        contentLength: response.ContentLength,
+        contentRange: response.ContentRange,
+        acceptRanges: response.AcceptRanges,
       }
     },
 
@@ -620,13 +638,22 @@ export async function currentWorkspaceStorage(): Promise<WorkspaceStorage> {
 const PUBLIC_STORAGE_PREFIXES = new Set([
   'assistant-avatars',
   'avatars',
+  // Admin changelog editor writes `changelog/`; rehost writes `changelog-images/`.
+  'changelog',
   'changelog-images',
+  'comment-images',
   'favicons',
   'header-logos',
   'help-center',
   'link-previews',
   'logos',
+  'portal-images',
+  'portal-media',
+  'portal-og',
+  'portal-welcome',
   'post-images',
+  'post-media',
+  'widget-media',
   'widget-hero',
 ])
 
@@ -827,10 +854,31 @@ export function isAllowedImageType(contentType: string): boolean {
   return ALLOWED_IMAGE_TYPES.has(contentType)
 }
 
+const ALLOWED_VIDEO_TYPES = new Set([
+  'video/mp4',
+  'video/webm',
+  'video/quicktime',
+  'video/x-m4v',
+  'video/m4v',
+])
+
+export function isAllowedVideoType(contentType: string): boolean {
+  return ALLOWED_VIDEO_TYPES.has(contentType)
+}
+
+export function isAllowedMediaType(contentType: string): boolean {
+  return isAllowedImageType(contentType) || isAllowedVideoType(contentType)
+}
+
 /**
  * Maximum allowed file size in bytes (5MB).
  */
 export const MAX_FILE_SIZE = 5 * 1024 * 1024
+export const MAX_VIDEO_FILE_SIZE = 100 * 1024 * 1024
+
+function maxMediaFileSize(contentType: string): number {
+  return isAllowedVideoType(contentType) ? MAX_VIDEO_FILE_SIZE : MAX_FILE_SIZE
+}
 
 /**
  * Validate and upload an image from a parsed multipart FormData body.
@@ -868,6 +916,56 @@ export async function uploadImageFromFormData(
       return Response.json({ error: 'File content does not match its type' }, { status: 400 })
     }
     const publicUrl = await uploadObject(key, body, file.type)
+    return Response.json({ publicUrl })
+  } catch {
+    return Response.json({ error: 'Upload failed' }, { status: 500 })
+  }
+}
+
+/** Validate and upload an image or a browser-playable feedback video. */
+export async function uploadMediaFromFormData(
+  formData: FormData,
+  storagePrefix: string
+): Promise<Response> {
+  const file = formData.get('file')
+  if (!(file instanceof File)) {
+    return Response.json({ error: 'No file provided' }, { status: 400 })
+  }
+  const contentType = isAllowedImageType(file.type)
+    ? file.type
+    : resolveVideoMimeType(file.type, file.name)
+  if (!contentType || !isAllowedMediaType(contentType)) {
+    return Response.json({ error: 'Invalid file type' }, { status: 400 })
+  }
+  const maxBytes = maxMediaFileSize(contentType)
+  if (file.size > maxBytes) {
+    return Response.json(
+      { error: `File too large. Maximum size is ${maxBytes / 1024 / 1024}MB` },
+      { status: 400 }
+    )
+  }
+
+  try {
+    const ext =
+      contentType === 'video/mp4'
+        ? 'mp4'
+        : contentType === 'video/webm'
+          ? 'webm'
+          : contentType === 'video/quicktime'
+            ? 'mov'
+            : contentType === 'video/x-m4v' || contentType === 'video/m4v'
+              ? 'm4v'
+              : contentType.split('/')[1] || 'bin'
+    const filename = file.name || `upload-${Date.now()}.${ext}`
+    const key = generateStorageKey(storagePrefix, filename)
+    const body = Buffer.from(await file.arrayBuffer())
+    const video = isAllowedVideoType(contentType)
+    const sniffed = video ? sniffVideoMime(body) : sniffImageMime(body)
+    const expected = video ? canonicalizeVideoMime(contentType) : contentType
+    if (sniffed !== expected) {
+      return Response.json({ error: 'File content does not match its type' }, { status: 400 })
+    }
+    const publicUrl = await uploadObject(key, body, contentType)
     return Response.json({ publicUrl })
   } catch {
     return Response.json({ error: 'Upload failed' }, { status: 500 })
@@ -929,6 +1027,20 @@ export function getPublicUrlOrNull(key: string | null | undefined): string | nul
   if (!isPublicStorageKey(key) && !isS3Usable()) return null
 
   return buildPublicUrl(getStoragePlacement(), key)
+}
+
+/**
+ * Mint a current-workspace persist ref for a stored `/api/storage` src.
+ *
+ * Private keys get a fresh `?read=` capability; public keys stay unsigned.
+ * Stale tokens, unbound K8s signatures, and unsigned legacy URLs are all
+ * replaced. Foreign srcs are returned unchanged. A workspace whose storage
+ * credentials do not resolve keeps the original src rather than a blank one.
+ */
+export function resignStoredAssetUrl(src: string): string {
+  const key = storedAssetKeyFromSrc(src)
+  if (!key) return src
+  return getPublicUrlOrNull(key) ?? src
 }
 
 /**
@@ -994,15 +1106,18 @@ export async function generatePresignedGetUrl(
 export interface S3ObjectResult {
   body: ReadableStream<Uint8Array>
   contentType: string
+  contentLength?: number
+  contentRange?: string
+  acceptRanges?: string
 }
 
 /**
  * Fetch an object from S3 and return its body stream and content type.
  * Used when S3_PROXY is enabled to stream file bytes through the server.
  */
-export async function getS3Object(key: string): Promise<S3ObjectResult> {
+export async function getS3Object(key: string, range?: string): Promise<S3ObjectResult> {
   const storage = await currentWorkspaceStorage()
-  return storage.get(key)
+  return storage.get(key, range)
 }
 
 // ============================================================================

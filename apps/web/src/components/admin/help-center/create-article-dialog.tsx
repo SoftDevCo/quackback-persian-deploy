@@ -50,7 +50,7 @@ export function CreateArticleDialog({
   const handleContentChange = useCallback(
     (json: JSONContent, _html: string, markdown: string) => {
       setContentJson(json)
-      form.setValue('content', markdown, { shouldValidate: true })
+      form.setValue('content', markdown, { shouldValidate: false, shouldDirty: true })
     },
     [form]
   )
@@ -78,8 +78,8 @@ export function CreateArticleDialog({
           setContentJson(null)
           setCategoryId('')
           void navigate({
-            to: '/admin/help-center/articles/$articleId',
-            params: { articleId: newArticle.id as string },
+            to: '/admin/help-center',
+            search: { article: newArticle.id },
           })
         },
       }

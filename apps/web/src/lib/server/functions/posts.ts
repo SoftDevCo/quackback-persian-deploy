@@ -15,6 +15,7 @@ import {
   type UserId,
 } from '@quackback/ids'
 import { tiptapContentSchema, type TiptapContent } from '@/lib/shared/schemas/posts'
+import { PageLimitSchema } from '@/lib/shared/schemas/taxonomy'
 import { PERMISSIONS } from '@/lib/shared/permissions'
 import { sanitizeTiptapContent } from '@/lib/server/sanitize-tiptap'
 import { requireAuth, policyActorFromAuth } from './auth-helpers'
@@ -171,6 +172,10 @@ const toggleCommentsLockSchema = z.object({
   locked: z.boolean(),
 })
 
+const retryPostIntegrationSyncSchema = z.object({
+  id: z.string(),
+})
+
 // ============================================
 // Type Exports
 // ============================================
@@ -266,7 +271,7 @@ export const fetchPostWithDetails = createServerFn({ method: 'GET' })
       // Comment keyset-page controls. First-page callers omit them (default
       // page size); "show more" fetches pass the prior page's nextCursor.
       commentsCursor: z.string().nullish(),
-      commentsLimit: z.number().int().positive().max(100).optional(),
+      commentsLimit: PageLimitSchema,
     })
   )
   .handler(async ({ data }) => {
@@ -516,36 +521,23 @@ export const deletePostFn = createServerFn({ method: 'POST' })
     const auth = await requireAuth({ permission: PERMISSIONS.POST_DELETE })
     const postId = data.id as PostId
 
-    // Soft delete the post (always succeeds or throws; dispatches post.deleted event)
-    await softDeletePost(postId, {
-      principalId: auth.principal.id,
-      role: auth.principal.role,
-      userId: auth.user.id,
-    })
-    log.info({ post_id: data.id }, 'post deleted')
-
-    // Cascade archive/close linked issues (never blocks post delete)
-    let cascadeResults: Array<{
-      linkId: string
-      integrationType: string
-      externalId: string
-      success: boolean
-      error?: string
-    }> = []
-    if (data.cascadeChoices && data.cascadeChoices.length > 0) {
-      try {
-        cascadeResults = await executeCascadeDelete(postId, data.cascadeChoices)
-        const failed = cascadeResults.filter((r) => !r.success)
-        if (failed.length > 0) {
-          log.warn(
-            { post_id: data.id, failed_count: failed.length, failed },
-            'cascade archive(s) failed'
-          )
-        }
-      } catch (err) {
-        log.error({ err }, 'cascade archive error (non-blocking)')
+    let cascadeResults: Awaited<ReturnType<typeof executeCascadeDelete>> = []
+    await softDeletePost(
+      postId,
+      {
+        principalId: auth.principal.id,
+        role: auth.principal.role,
+        userId: auth.user.id,
+      },
+      async (tx) => {
+        if (data.cascadeChoices?.length)
+          cascadeResults = await executeCascadeDelete(postId, data.cascadeChoices, {
+            executor: tx,
+            requestedBy: auth.principal.id,
+          })
       }
-    }
+    )
+    log.info({ post_id: data.id }, 'post deleted')
 
     return { id: data.id, cascadeResults }
   })
@@ -561,6 +553,22 @@ export const fetchPostExternalLinksFn = createServerFn({ method: 'GET' })
     const links = await getPostExternalLinks(data.id as PostId)
     log.debug({ count: links.length }, 'fetch post external links result')
     return links
+  })
+
+/**
+ * Retry integration delivery per destination and refresh supported linked issues.
+ * Does not republish the domain event or replay notification/AI/webhook sinks.
+ */
+export const retryPostIntegrationSyncFn = createServerFn({ method: 'POST' })
+  .validator(retryPostIntegrationSyncSchema)
+  .handler(async ({ data }) => {
+    const ctx = await requireAuth({ permission: PERMISSIONS.INTEGRATION_MANAGE })
+    const { syncPostIntegrations } = await import('@/lib/server/integrations/post-sync')
+    const { syncSourceForActor } = await import('@/lib/server/integrations/sync/eligibility')
+    const actor = await policyActorFromAuth(ctx)
+    if (!(await syncSourceForActor({ sourceType: 'post', sourceId: data.id }, actor)))
+      throw new Error('Post not found')
+    return syncPostIntegrations(data.id as PostId, actor.principalId ?? undefined)
   })
 
 /**

@@ -32,13 +32,11 @@ export const colors = {
 export const layout = {
   main: {
     backgroundColor: colors.background,
-    direction: 'rtl' as const,
     fontFamily:
-      'Vazirmatn, Vazir, Tahoma, Arial, sans-serif',
+      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
   },
   container: {
     backgroundColor: colors.surface,
-    direction: 'rtl' as const,
     padding: '48px 32px',
     maxWidth: '560px',
     borderRadius: '12px',
@@ -54,7 +52,6 @@ export const typography = {
     lineHeight: '32px',
     marginTop: '0',
     marginBottom: '8px',
-    textAlign: 'right' as const,
   },
   h2: {
     color: colors.heading,
@@ -70,7 +67,6 @@ export const typography = {
     lineHeight: '26px',
     marginTop: '0',
     marginBottom: '24px',
-    textAlign: 'right' as const,
   },
   textSmall: {
     color: colors.textMuted,
@@ -78,7 +74,6 @@ export const typography = {
     lineHeight: '22px',
     marginTop: '0',
     marginBottom: '16px',
-    textAlign: 'right' as const,
   },
   footer: {
     color: colors.textLight,

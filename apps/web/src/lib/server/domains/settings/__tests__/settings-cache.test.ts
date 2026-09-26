@@ -33,6 +33,7 @@ const mockUpdate = vi.fn()
 const mockSet = vi.fn()
 const mockWhere = vi.fn()
 const mockReturning = vi.fn()
+const mockSelectLabsRows = vi.fn()
 
 type SettingsTx = {
   query: { settings: { findFirst: (...args: unknown[]) => unknown } }
@@ -56,6 +57,7 @@ vi.mock('@/lib/server/db', async (importOriginal) => {
       update: (...args: unknown[]) => mockUpdate(...args),
       select: () => ({
         from: () => ({
+          where: () => Promise.resolve(mockSelectLabsRows()),
           limit: () => Promise.resolve([]),
           orderBy: () => Promise.resolve([]),
         }),
@@ -77,6 +79,8 @@ vi.mock('@/lib/server/auth', () => ({
 // --- S3 mock ---
 vi.mock('@/lib/server/storage/s3', () => ({
   getPublicUrlOrNull: (key: string | null) => (key ? `https://cdn.test/${key}` : null),
+  resignStoredAssetUrl: (src: string) =>
+    src.includes('/api/storage/') && !src.includes('read=') ? `${src}?read=live` : src,
   deleteObject: vi.fn(),
 }))
 
@@ -121,8 +125,13 @@ function makeSettingsRow(overrides: Record<string, unknown> = {}) {
 }
 
 // Import after mocks
-const { getWorkspaceSettings, updateAuthConfig, updatePortalConfig, updateDeveloperConfig } =
-  await import('../settings.service')
+const {
+  getWorkspaceSettings,
+  updateAuthConfig,
+  updatePortalConfig,
+  updateDeveloperConfig,
+  updateFeatureFlags,
+} = await import('../settings.service')
 const { invalidateSettingsCache } = await import('../settings.helpers')
 const {
   updateBrandingConfig,
@@ -137,13 +146,15 @@ const {
   saveHeaderLogoKey,
   deleteHeaderLogoKey,
 } = await import('../settings.media')
-const { updateWidgetConfig, regenerateWidgetSecret } = await import('../settings.widget')
+const { updateWidgetConfig, regenerateWidgetSecret, ensureWidgetSecret } =
+  await import('../settings.widget')
 
 beforeEach(() => {
   vi.clearAllMocks()
   mockCacheGet.mockResolvedValue(null)
   mockCacheSet.mockResolvedValue(undefined)
   mockCacheDel.mockResolvedValue(undefined)
+  mockSelectLabsRows.mockReturnValue([])
   // Chain: db.update().set().where().returning()
   mockReturning.mockResolvedValue([makeSettingsRow()])
   mockWhere.mockReturnValue({ returning: mockReturning })
@@ -160,6 +171,7 @@ describe('getWorkspaceSettings', () => {
     const cached = {
       name: 'Cached Workspace',
       slug: 'cached',
+      visualTheme: 'legacy' as const,
       settings: makeSettingsRow({
         name: 'Cached Workspace',
         setupState: JSON.stringify({
@@ -184,6 +196,49 @@ describe('getWorkspaceSettings', () => {
 
     expect(result).toEqual(cached)
     expect(mockCacheGet).toHaveBeenCalledWith('settings:workspace')
+    expect(mockFindFirst).not.toHaveBeenCalled()
+  })
+
+  it('remints welcome-card storage srcs on a cache hit without writing them back', async () => {
+    const unsigned = '/api/storage/uploads/logo.png'
+    const cached = {
+      name: 'Cached Workspace',
+      slug: 'cached',
+      visualTheme: 'legacy' as const,
+      settings: makeSettingsRow({
+        name: 'Cached Workspace',
+        setupState: JSON.stringify({
+          version: 2,
+          steps: {
+            core: true,
+            workspace: true,
+            startingPoint: {
+              outcome: 'product_feedback',
+              resourceType: 'none',
+              source: 'managed',
+              resolution: 'configured',
+              completedAt: '2026-08-13T00:00:00.000Z',
+            },
+          },
+        }),
+      }),
+      publicPortalConfig: {
+        welcomeCard: {
+          body: {
+            type: 'doc',
+            content: [{ type: 'image', attrs: { src: unsigned } }],
+          },
+        },
+      },
+    }
+    mockCacheGet.mockResolvedValue(cached)
+
+    const result = await getWorkspaceSettings()
+
+    expect(result?.publicPortalConfig.welcomeCard?.body.content?.[0]?.attrs?.src).toBe(
+      `${unsigned}?read=live`
+    )
+    expect(cached.publicPortalConfig.welcomeCard.body.content[0].attrs.src).toBe(unsigned)
     expect(mockFindFirst).not.toHaveBeenCalled()
   })
 
@@ -225,12 +280,46 @@ describe('getWorkspaceSettings', () => {
     const result = await getWorkspaceSettings()
 
     expect(result).not.toBeNull()
+    expect(result?.visualTheme).toBe('legacy')
     expect(mockFindFirst).toHaveBeenCalled()
     expect(mockCacheSet).toHaveBeenCalledWith(
       'settings:workspace',
-      expect.objectContaining({ name: 'Test Workspace' }),
+      expect.objectContaining({ name: 'Test Workspace', visualTheme: 'legacy' }),
       3600
     )
+  })
+
+  it('repairs a cache hit that predates visualTheme so an enabled experiment is not hidden', async () => {
+    mockSelectLabsRows.mockReturnValue([
+      { experimentId: 'refined-visual-theme', visible: false, enabled: true },
+    ])
+    const cached = {
+      name: 'Cached Workspace',
+      slug: 'cached',
+      settings: makeSettingsRow({
+        name: 'Cached Workspace',
+        setupState: JSON.stringify({
+          version: 2,
+          steps: {
+            core: true,
+            workspace: true,
+            startingPoint: {
+              outcome: 'product_feedback',
+              resourceType: 'none',
+              source: 'managed',
+              resolution: 'configured',
+              completedAt: '2026-08-13T00:00:00.000Z',
+            },
+          },
+        }),
+      }),
+    }
+    mockCacheGet.mockResolvedValue(cached)
+
+    const result = await getWorkspaceSettings()
+
+    expect(result?.visualTheme).toBe('refined')
+    expect(mockFindFirst).not.toHaveBeenCalled()
   })
 
   it('returns null when no settings exist (does not cache null)', async () => {
@@ -321,6 +410,14 @@ describe('settings write functions invalidate cache', () => {
     expect(mockCacheDel).toHaveBeenCalledWith('settings:workspace', 'auth:registered-providers')
   })
 
+  it('deleteLogoKey clears the derived favicon too', async () => {
+    mockFindFirst.mockResolvedValue(
+      makeSettingsRow({ logoKey: 'logos/a.png', faviconKey: 'favicons/a.png' })
+    )
+    await deleteLogoKey()
+    expect(mockSet).toHaveBeenCalledWith({ logoKey: null, faviconKey: null })
+  })
+
   it('saveFaviconKey invalidates cache', async () => {
     await saveFaviconKey('favicons/new.ico')
     expect(mockCacheDel).toHaveBeenCalledWith('settings:workspace', 'auth:registered-providers')
@@ -344,5 +441,135 @@ describe('settings write functions invalidate cache', () => {
   it('regenerateWidgetSecret invalidates cache', async () => {
     await regenerateWidgetSecret()
     expect(mockCacheDel).toHaveBeenCalledWith('settings:workspace', 'auth:registered-providers')
+  })
+})
+
+describe('ensureWidgetSecret', () => {
+  it('returns an existing secret without writing or invalidating', async () => {
+    mockFindFirst.mockResolvedValue(makeSettingsRow({ widgetSecret: 'wgt_existing' }))
+    await expect(ensureWidgetSecret()).resolves.toBe('wgt_existing')
+    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockCacheDel).not.toHaveBeenCalled()
+  })
+
+  it('mints when missing and invalidates cache', async () => {
+    mockFindFirst.mockResolvedValue(makeSettingsRow({ widgetSecret: null }))
+    let stored: string | undefined
+    mockSet.mockImplementation((payload: { widgetSecret?: string }) => {
+      stored = payload.widgetSecret
+      return { where: mockWhere }
+    })
+    mockReturning.mockImplementation(() => Promise.resolve([{ widgetSecret: stored }]))
+
+    const secret = await ensureWidgetSecret()
+    expect(secret).toMatch(/^wgt_[a-f0-9]{64}$/)
+    expect(secret).toBe(stored)
+    expect(mockCacheDel).toHaveBeenCalledWith('settings:workspace', 'auth:registered-providers')
+  })
+
+  it('returns the winner when the insert loses the race', async () => {
+    const existing = `wgt_${'b'.repeat(64)}`
+    mockFindFirst
+      .mockResolvedValueOnce(makeSettingsRow({ widgetSecret: null }))
+      .mockResolvedValueOnce(makeSettingsRow({ widgetSecret: existing }))
+    mockReturning.mockResolvedValue([])
+
+    await expect(ensureWidgetSecret()).resolves.toBe(existing)
+    expect(mockCacheDel).not.toHaveBeenCalled()
+  })
+})
+
+describe('updateFeatureFlags', () => {
+  beforeEach(() => {
+    mockFindFirst.mockResolvedValue(
+      makeSettingsRow({
+        featureFlags: JSON.stringify({
+          feedback: true,
+          changelog: true,
+          helpCenter: false,
+          supportInbox: false,
+          supportTickets: false,
+          statusPage: false,
+        }),
+        metadata: null,
+      })
+    )
+  })
+
+  it('refuses to persist feedback: false', async () => {
+    const result = await updateFeatureFlags({ feedback: false })
+    expect(result.feedback).toBe(true)
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        featureFlags: expect.stringMatching(/"feedback":true/),
+      })
+    )
+    const written = JSON.parse(
+      (
+        mockSet.mock.calls.find((call) => call[0] && 'featureFlags' in call[0]) as
+          [{ featureFlags: string }] | undefined
+      )?.[0].featureFlags ?? '{}'
+    ) as { feedback?: boolean }
+    expect(written.feedback).toBe(true)
+  })
+
+  it('writes statusSettings.enabled true when turning Status on', async () => {
+    await updateFeatureFlags({ statusPage: true })
+    const metadataCall = mockSet.mock.calls.find((call) => call[0] && 'metadata' in call[0]) as
+      [{ metadata: string }] | undefined
+    expect(metadataCall).toBeTruthy()
+    const meta = JSON.parse(metadataCall![0].metadata) as {
+      statusSettings?: { enabled?: boolean }
+    }
+    expect(meta.statusSettings?.enabled).toBe(true)
+  })
+
+  it('lights Messenger surfaces when turning Support on', async () => {
+    await updateFeatureFlags({ supportInbox: true, supportTickets: true })
+    const call = mockSet.mock.calls.find((entry) => entry[0] && 'widgetConfig' in entry[0]) as
+      [{ widgetConfig: string; portalConfig: string }] | undefined
+    expect(call).toBeTruthy()
+    const widget = JSON.parse(call![0].widgetConfig) as {
+      enabled?: boolean
+      tabs?: { messenger?: boolean }
+    }
+    const portal = JSON.parse(call![0].portalConfig) as { support?: { enabled?: boolean } }
+    expect(widget.enabled).toBe(true)
+    expect(widget.tabs?.messenger).toBe(true)
+    expect(portal.support?.enabled).toBe(true)
+  })
+
+  it('does not rewrite Messenger surfaces when Support stays off', async () => {
+    await updateFeatureFlags({ helpCenter: false })
+    const widgetCall = mockSet.mock.calls.find((entry) => entry[0] && 'widgetConfig' in entry[0])
+    expect(widgetCall).toBeUndefined()
+  })
+
+  it('turns the widget Help tab on when turning Help Center on', async () => {
+    await updateFeatureFlags({ helpCenter: true })
+    const call = mockSet.mock.calls.find((entry) => entry[0] && 'widgetConfig' in entry[0]) as
+      [{ widgetConfig: string }] | undefined
+    expect(call).toBeTruthy()
+    const widget = JSON.parse(call![0].widgetConfig) as { tabs?: { help?: boolean } }
+    expect(widget.tabs?.help).toBe(true)
+  })
+
+  it('does not write statusSettings.enabled when turning Status off', async () => {
+    mockFindFirst.mockResolvedValue(
+      makeSettingsRow({
+        featureFlags: JSON.stringify({
+          feedback: true,
+          changelog: true,
+          helpCenter: false,
+          supportInbox: false,
+          supportTickets: false,
+          statusPage: true,
+        }),
+        metadata: JSON.stringify({ statusSettings: { enabled: true } }),
+      })
+    )
+    await updateFeatureFlags({ statusPage: false })
+    const metadataCall = mockSet.mock.calls.find((call) => call[0] && 'metadata' in call[0])
+    expect(metadataCall).toBeUndefined()
   })
 })

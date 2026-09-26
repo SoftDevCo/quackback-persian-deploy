@@ -48,6 +48,10 @@ const mockEnforceAiTokenBudget = vi.hoisted(() => vi.fn(async () => {}))
 vi.mock('@/lib/server/domains/settings/tier-enforce', () => ({
   enforceAiTokenBudget: mockEnforceAiTokenBudget,
 }))
+const mockRequireEntitlement = vi.hoisted(() => vi.fn(async () => {}))
+vi.mock('@/lib/server/domains/settings/cloud/entitlements', () => ({
+  requireEntitlement: mockRequireEntitlement,
+}))
 vi.mock('@/lib/server/domains/settings/settings.office-hours', () => ({
   getOfficeHoursSchedule: vi.fn(async () => ({ enabled: false, timezone: 'UTC', intervals: [] })),
 }))
@@ -79,6 +83,7 @@ vi.mock('@/lib/server/domains/conversation-attributes/conversation-attribute.ser
 
 vi.mock('@/lib/server/realtime/conversation-channels', () => ({
   publishConversationEvent: vi.fn(),
+  publishConversationMessage: vi.fn(),
   publishAgentConversationEvent: vi.fn(),
   publishConversationUpdate: vi.fn(),
   publishTyping: vi.fn(),
@@ -118,6 +123,14 @@ vi.mock('../conversation.query', () => ({
   })),
   authorFromInput: vi.fn((a: { principalId: string }) => ({ principalId: a.principalId })),
   resolveAuthor: vi.fn(async (a: { principalId: string }) => ({ principalId: a.principalId })),
+  resolveAuthorAudiences: vi.fn(async (a: { principalId: string; displayName?: string | null }) => {
+    const author = {
+      principalId: a.principalId,
+      displayName: a.displayName ?? null,
+      avatarUrl: null,
+    }
+    return { publicAuthor: author, supportAuthor: author }
+  }),
   loadAuthors: vi.fn(async () => new Map()),
 }))
 
@@ -224,7 +237,7 @@ const V2_IDENTITY: DeliveredFields['identity'] = {
 // Durable trace fixtures contain only bounded config metadata and tool names/outcomes,
 // never prompts, customer text, tool arguments, or tool results.
 const PRIVACY_SAFE_TRACE: DeliveredFields['trace'] = {
-  promptVersion: 'support-agent-v4',
+  promptVersion: 'support-agent-v6',
   configRevision: 12,
   role: 'customer_support',
   tone: 'balanced',
@@ -290,6 +303,7 @@ beforeEach(() => {
   assistantMock.openInvolvement.mockResolvedValue({ id: 'assistant_involvement_1' })
   getMessengerConfig.mockResolvedValue({ assistant: { respond: true, name: 'Quinn' } })
   mockEnforceAiTokenBudget.mockResolvedValue(undefined)
+  mockRequireEntitlement.mockResolvedValue(undefined)
   mockIsFeatureEnabled.mockResolvedValue(false)
   mockGetLiveWorkflowReferencedAttributeKeys.mockResolvedValue(new Set())
   mockClassifyConversationAttributes.mockResolvedValue([])
@@ -333,6 +347,25 @@ describe('runAssistantTurnForConversation gate', () => {
     assistantMock.isAssistantConfigured.mockReturnValue(false)
     await runAssistantTurnForConversation(CONV)
     expect(assistantMock.runAssistantTurn).not.toHaveBeenCalled()
+  })
+
+  it('does not run when the workspace is not entitled to the AI assistant', async () => {
+    const { EntitlementRequiredError } = await import('@/lib/server/errors/entitlement-error')
+    mockRequireEntitlement.mockRejectedValue(
+      new EntitlementRequiredError({
+        entitlement: 'aiAssistant',
+        friendly: 'The AI assistant',
+        friendlyIsPlural: false,
+        requiredPlanArticle: 'a',
+        currentPlan: 'free',
+        currentPlanName: 'Free',
+        requiredPlan: 'pro',
+        requiredPlanName: 'Pro',
+      })
+    )
+    await runAssistantTurnForConversation(CONV)
+    expect(assistantMock.runAssistantTurn).not.toHaveBeenCalled()
+    expect(assistantMock.ensureAssistantPrincipal).not.toHaveBeenCalled()
   })
 
   it('stays silent after a handoff even before the first teammate reply', async () => {
@@ -678,16 +711,6 @@ describe('runAssistantTurnForConversation activity snapshot (Redis mirror)', () 
 })
 
 describe('runAssistantTurnForConversation Phase 2 live attribute re-check', () => {
-  it('never fires when the inboxAi flag is off', async () => {
-    mockIsFeatureEnabled.mockResolvedValue(false)
-    mockGetLiveWorkflowReferencedAttributeKeys.mockResolvedValue(new Set(['issue_type']))
-    assistantMock.runAssistantTurn.mockResolvedValue(answered({}))
-    await runAssistantTurnForConversation(CONV)
-    // The flag gate is checked before the referenced-keys read at all.
-    expect(mockGetLiveWorkflowReferencedAttributeKeys).not.toHaveBeenCalled()
-    expect(mockClassifyConversationAttributes).not.toHaveBeenCalled()
-  })
-
   it('never fires when no live workflow references any AI attribute', async () => {
     mockIsFeatureEnabled.mockResolvedValue(true)
     mockGetLiveWorkflowReferencedAttributeKeys.mockResolvedValue(new Set())
@@ -699,7 +722,7 @@ describe('runAssistantTurnForConversation Phase 2 live attribute re-check', () =
     expect(mockClassifyConversationAttributes).not.toHaveBeenCalled()
   })
 
-  it('fires with trigger live_recheck restricted to the referenced keys when flag on + referenced', async () => {
+  it('fires with trigger live_recheck restricted to the referenced keys when referenced', async () => {
     mockIsFeatureEnabled.mockResolvedValue(true)
     mockGetLiveWorkflowReferencedAttributeKeys.mockResolvedValue(
       new Set(['issue_type', 'sentiment'])

@@ -72,7 +72,9 @@ describe('removePostFromInboxLists', () => {
     )
     queryClient.setQueryData(facetKey, facets)
 
-    expect(() => removePostFromInboxLists(queryClient, POST_A)).not.toThrow()
+    expect(() => {
+      removePostFromInboxLists(queryClient, POST_A)
+    }).not.toThrow()
 
     const list = queryClient.getQueryData<ReturnType<typeof infiniteList>>(listKey)
     expect(list?.pages[0]?.items.map((p) => p.id)).toEqual([POST_B])

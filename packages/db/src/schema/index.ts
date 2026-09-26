@@ -66,3 +66,8 @@ export * from './assistant-web-sources'
 export * from './macros'
 export * from './import-runs'
 export * from './export-runs'
+export * from './labs'
+
+export * from './slack'
+export * from './integration-deliveries'
+export * from './integration-sync'

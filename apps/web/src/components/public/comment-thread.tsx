@@ -11,7 +11,7 @@ import {
 } from '@heroicons/react/24/solid'
 import { PencilSquareIcon, TrashIcon, CheckIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { CheckBadgeIcon } from '@heroicons/react/24/solid'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Avatar } from '@/components/ui/avatar'
 import { ReactionChip } from '@/components/shared/reaction-chip'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -24,10 +24,11 @@ import { addReactionFn, removeReactionFn } from '@/lib/server/functions/comments
 import { useEditComment } from '@/lib/client/mutations/portal-comments'
 import type { CommentReactionCount } from '@/lib/shared'
 import type { PublicCommentView } from '@/lib/client/queries/portal-detail'
-import { cn, getInitials } from '@/lib/shared/utils'
+import { cn } from '@/lib/shared/utils'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { CommentContent } from '@/components/public/comment-content'
 import { AuthorHoverCard } from '@/components/public/author-hover-card'
+import { AdminAuthorHoverCard } from '@/components/admin/admin-author-hover-card'
 import { CommentForm, type CreateCommentMutation } from './comment-form'
 import { RichTextEditor } from '@/components/ui/rich-text-editor'
 import { COMMENT_EDITOR_FEATURES } from './comment-editor-features'
@@ -141,8 +142,10 @@ interface CommentThreadProps {
   currentStatusId?: string | null
   /** Whether the current user is a team member */
   isTeamMember?: boolean
-  /** Link comment authors to their public profile (portal only). */
+  /** Link comment authors to a profile behind a hover card. */
   linkAuthors?: boolean
+  /** Destination for author links. Admin uses the enriched hover card. */
+  authorLinkTo?: 'portal' | 'admin'
   /** Hide the comment form area entirely (for readonly previews) */
   hideCommentForm?: boolean
   /** Callback when a comment is deleted */
@@ -178,6 +181,7 @@ export function CommentThread({
   currentStatusId,
   isTeamMember,
   linkAuthors = false,
+  authorLinkTo = 'portal',
   hideCommentForm = false,
   onDeleteComment,
   deletingCommentId,
@@ -279,6 +283,7 @@ export function CommentThread({
             isPinPending,
             isTeamMember,
             linkAuthors,
+            authorLinkTo,
             onDeleteComment,
             deletingCommentId,
             onRestoreComment,
@@ -309,8 +314,9 @@ interface CommentItemProps {
   isPinPending?: boolean
   /** Whether the current user is a team member */
   isTeamMember?: boolean
-  /** Link the author name to their public profile (portal only). */
+  /** Link the author name to a profile behind a hover card. */
   linkAuthors?: boolean
+  authorLinkTo?: 'portal' | 'admin'
   /** Callback when a comment is deleted */
   onDeleteComment?: (commentId: PostCommentId) => void
   /** ID of the comment currently being deleted */
@@ -343,6 +349,7 @@ function CommentItem({
   isPinPending = false,
   isTeamMember,
   linkAuthors = false,
+  authorLinkTo = 'portal',
   onDeleteComment,
   deletingCommentId,
   onRestoreComment,
@@ -447,9 +454,7 @@ function CommentItem({
         >
           <div className="py-2">
             <div className="flex items-center gap-2">
-              <Avatar className="h-8 w-8 shrink-0 opacity-40">
-                <AvatarFallback className="text-xs">?</AvatarFallback>
-              </Avatar>
+              <Avatar className="h-8 w-8 shrink-0 opacity-40" fallback="?" />
               <span className="text-sm text-muted-foreground italic">
                 {intl.formatMessage({
                   id: 'portal.commentThread.deleted',
@@ -517,6 +522,7 @@ function CommentItem({
                     isPinPending={isPinPending}
                     isTeamMember={isTeamMember}
                     linkAuthors={linkAuthors}
+                    authorLinkTo={authorLinkTo}
                     onDeleteComment={onDeleteComment}
                     deletingCommentId={deletingCommentId}
                     onRestoreComment={onRestoreComment}
@@ -555,33 +561,38 @@ function CommentItem({
           )}
         >
           <div className="flex items-center gap-2">
-            <Avatar className="h-8 w-8 shrink-0">
-              {comment.avatarUrl && (
-                <AvatarImage
-                  src={comment.avatarUrl}
-                  alt={
-                    comment.authorName ||
-                    intl.formatMessage({
-                      id: 'portal.commentThread.authorAlt',
-                      defaultMessage: 'Comment author',
-                    })
-                  }
-                />
-              )}
-              <AvatarFallback className="text-xs">{getInitials(comment.authorName)}</AvatarFallback>
-            </Avatar>
+            <Avatar
+              className="h-8 w-8 shrink-0"
+              src={comment.avatarUrl}
+              name={comment.authorName}
+              fallbackClassName="text-xs"
+            />
             {linkAuthors && comment.principalId ? (
-              <AuthorHoverCard
-                principalId={comment.principalId}
-                displayName={comment.authorName}
-                className="font-medium text-sm"
-              >
-                {comment.authorName ||
-                  intl.formatMessage({
-                    id: 'portal.commentThread.authorFallback',
-                    defaultMessage: 'Anonymous',
-                  })}
-              </AuthorHoverCard>
+              authorLinkTo === 'admin' ? (
+                <AdminAuthorHoverCard
+                  principalId={comment.principalId}
+                  displayName={comment.authorName}
+                  className="font-medium text-sm"
+                >
+                  {comment.authorName ||
+                    intl.formatMessage({
+                      id: 'portal.commentThread.authorFallback',
+                      defaultMessage: 'Anonymous',
+                    })}
+                </AdminAuthorHoverCard>
+              ) : (
+                <AuthorHoverCard
+                  principalId={comment.principalId}
+                  displayName={comment.authorName}
+                  className="font-medium text-sm"
+                >
+                  {comment.authorName ||
+                    intl.formatMessage({
+                      id: 'portal.commentThread.authorFallback',
+                      defaultMessage: 'Anonymous',
+                    })}
+                </AuthorHoverCard>
+              )
             ) : (
               <span className="font-medium text-sm">
                 {comment.authorName ||
@@ -695,6 +706,7 @@ function CommentItem({
                   autofocus="end"
                   features={COMMENT_EDITOR_FEATURES}
                   onImageUpload={onImageUpload}
+                  onVideoUpload={onImageUpload}
                   disabled={editMutation.isPending}
                   onChange={(json, _html, markdown) => {
                     editJsonRef.current = json as TiptapContent
@@ -1018,6 +1030,7 @@ function CommentItem({
                   isPinPending={isPinPending}
                   isTeamMember={isTeamMember}
                   linkAuthors={linkAuthors}
+                  authorLinkTo={authorLinkTo}
                   onDeleteComment={onDeleteComment}
                   deletingCommentId={deletingCommentId}
                   onRestoreComment={onRestoreComment}

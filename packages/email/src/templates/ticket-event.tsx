@@ -27,21 +27,6 @@ interface TicketEventEmailProps {
   logoUrl?: string
 }
 
-function localizeStatusLabel(status: string): string {
-  const key = status.toLowerCase().replace(/[\s-]+/g, '_')
-  const labels: Record<string, string> = {
-    open: 'باز',
-    under_review: 'در حال بررسی',
-    planned: 'برنامه‌ریزی‌شده',
-    in_progress: 'در حال انجام',
-    resolved: 'حل‌شده',
-    closed: 'بسته‌شده',
-    complete: 'تکمیل‌شده',
-    completed: 'تکمیل‌شده',
-  }
-  return labels[key] ?? status
-}
-
 /**
  * The single template behind every ticket lifecycle email; per-kind copy
  * lives in ticketEventCopy() (index.ts). Optional blocks render only when
@@ -114,8 +99,8 @@ export function TicketEventEmail({
       {statusChange && (
         <Text style={{ ...typography.text, color: colors.textMuted }}>
           {statusChange.previousLabel
-            ? `${localizeStatusLabel(statusChange.previousLabel)} ← ${localizeStatusLabel(statusChange.newLabel)}`
-            : localizeStatusLabel(statusChange.newLabel)}
+            ? `${statusChange.previousLabel} → ${statusChange.newLabel}`
+            : statusChange.newLabel}
         </Text>
       )}
 
@@ -143,7 +128,7 @@ export function TicketEventEmail({
       <NotificationFooter
         reason={reason}
         unsubscribeUrl={preferencesUrl ?? ctaUrl}
-        unsubscribeLabel="مدیریت تنظیمات اعلان‌ها"
+        unsubscribeLabel="Manage notification preferences"
       />
     </EmailLayout>
   )

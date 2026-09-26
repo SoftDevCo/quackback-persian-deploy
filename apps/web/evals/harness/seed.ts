@@ -45,6 +45,7 @@ import {
 import { testDb } from '@/lib/server/__tests__/db-test-fixture'
 import { DEFAULT_ASSISTANT_CONFIG, type AssistantConfig } from '@/lib/shared/assistant/config'
 import { ensureAssistantPrincipal } from '@/lib/server/domains/assistant'
+import type { SlackMember } from '@/integrations/slack/server/agent/identity'
 import { openInvolvement } from '@/lib/server/domains/assistant/assistant.involvement'
 import {
   generateKbEmbedding,
@@ -83,6 +84,10 @@ export function buildScenarioAssistantConfig(config: ScenarioConfig = {}): Assis
   return {
     ...base,
     agents: {
+      workspace: {
+        ...base.agents.workspace,
+        slack: { ...base.agents.workspace.slack, enabled: true },
+      },
       agent: {
         ...base.agents.agent,
         voice: {
@@ -116,14 +121,7 @@ export async function applyScenarioSettings(config: ScenarioConfig = {}): Promis
     )
   }
   const assistantConfig = buildScenarioAssistantConfig(config)
-  const featureFlags = JSON.stringify({
-    assistantConnectors: config.connectors === true,
-    assistantSkills: config.skills === true,
-  })
-  await testDb
-    .update(settings)
-    .set({ assistantConfig, featureFlags })
-    .where(eq(settings.id, row.id))
+  await testDb.update(settings).set({ assistantConfig }).where(eq(settings.id, row.id))
 }
 
 /** Find-or-create Quinn's service principal inside the transaction. */
@@ -491,6 +489,32 @@ export async function seedConversation(): Promise<SeededConversation> {
     // stable string is enough.
     latestCustomerMessageId: `eval-msg-${suffix()}`,
   }
+}
+
+/**
+ * Seed the teammate a workspace-assistant turn runs on behalf of. The runtime
+ * refuses `workspace_assistant` without a requesting actor, mirroring the Slack
+ * handler's linked-member path; an admin keeps the eval about model behaviour
+ * rather than RBAC (permission gates are covered by unit tests).
+ */
+export async function seedTeammate(): Promise<SlackMember> {
+  const userId = createId('user')
+  const principalId = createId('principal') as PrincipalId
+  await testDb.insert(user).values({
+    id: userId,
+    name: 'Eval Teammate',
+    email: `eval-teammate-${suffix()}@example.test`,
+    emailVerified: true,
+  })
+  await testDb.insert(principal).values({
+    id: principalId,
+    userId,
+    role: 'admin',
+    type: 'user',
+    displayName: 'Eval Teammate',
+    createdAt: new Date(),
+  })
+  return { id: principalId, role: 'admin', displayName: 'Eval Teammate' }
 }
 
 /** Seed everything a scenario declares; returns handles the runner threads in. */

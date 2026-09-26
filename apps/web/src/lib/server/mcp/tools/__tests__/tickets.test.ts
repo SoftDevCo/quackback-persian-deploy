@@ -106,6 +106,7 @@ describe('ticket MCP tools', () => {
     const body = parse(out)
     expect(body.tickets[0]).toEqual({
       id: 'ticket_1',
+      url: '/admin/inbox?i=ticket_1',
       number: 42,
       reference: '#42',
       type: 'customer',
@@ -170,6 +171,7 @@ describe('ticket MCP tools', () => {
     expect(mockListMessages).toHaveBeenCalledWith('ticket_1', {
       before: undefined,
       includeInternal: false,
+      preferAccountName: true,
     })
     const body = parse(out)
     expect(body.ticket).toMatchObject({ id: 'ticket_1', reference: '#42', stage: 'in_progress' })

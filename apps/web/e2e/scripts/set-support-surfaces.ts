@@ -4,7 +4,6 @@
  * "on" turns on everything the three conversation surfaces need:
  *   - featureFlags.supportInbox        (gates /admin/inbox + all conversation paths)
  *   - widgetConfig.enabled             (widget master switch)
- *   - widgetConfig.messenger.enabled   (widget messenger surface)
  *   - widgetConfig.tabs.messenger      (widget Messages tab)
  *   - portalConfig.support.enabled     (portal /support tab)
  *
@@ -39,7 +38,6 @@ try {
 
   const widget = parseJson(rows[0].widget_config)
   if (enabled) widget.enabled = true
-  widget.messenger = { ...((widget.messenger as object) ?? {}), enabled }
   widget.tabs = { ...((widget.tabs as object) ?? {}), messenger: enabled }
 
   const portal = parseJson(rows[0].portal_config)

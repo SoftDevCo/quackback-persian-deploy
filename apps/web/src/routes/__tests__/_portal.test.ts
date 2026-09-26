@@ -32,6 +32,7 @@ vi.mock('@/lib/server/domains/settings/redact', () => ({
 }))
 vi.mock('@/lib/shared/theme', () => ({
   generateThemeCSS: vi.fn(() => ''),
+  generateWorkspaceThemeCSS: vi.fn(() => ''),
   readFontSans: vi.fn(() => null),
 }))
 vi.mock('@/lib/shared/i18n', () => ({
@@ -39,13 +40,14 @@ vi.mock('@/lib/shared/i18n', () => ({
   loadMessages: vi.fn(async () => ({})),
   loadPortalMessages: vi.fn(async () => ({})),
   DEFAULT_LOCALE: 'en',
-  SUPPORTED_LOCALES: ['en', 'de', 'fr', 'es', 'ar', 'fa', 'ru', 'pt-br', 'zh-cn', 'zh-tw'],
+  SUPPORTED_LOCALES: ['en', 'de', 'fr', 'es', 'ar', 'ru', 'pt-br', 'zh-cn', 'zh-tw'],
 }))
 vi.mock('@/lib/shared/types/settings', () => ({
   DEFAULT_PORTAL_CONFIG: { oauth: {}, access: {} },
   DEFAULT_AUTH_CONFIG: { oauth: { google: true, github: true, password: true }, openSignup: false },
 }))
 vi.mock('@tanstack/react-start', () => ({
+  createServerOnlyFn: <T>(fn: T) => fn,
   createServerFn: () => {
     const chain = {
       validator() {

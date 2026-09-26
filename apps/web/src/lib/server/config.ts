@@ -117,6 +117,13 @@ const configSchema = z
     /** TTL for the in-process hostname → workspace record cache, milliseconds. */
     workspaceRegistryTtlMs: envInt.pipe(z.number().int().min(0).max(600_000)).default(30_000),
     /**
+     * Hours without an HTTP request before a pooled workspace is dormant: no job
+     * loop, no fleet sweeps, until the next request wakes it. `0` disables the
+     * policy (every active registry workspace gets a loop, the pre-policy shape).
+     * See `workspaces/activity.ts`.
+     */
+    workspaceDormantAfterHours: envInt.pipe(z.number().int().min(0).max(8_760)).default(168),
+    /**
      * The fleet root from which every workspace's `SECRET_KEY` is derived and every
      * workspace's storage credential is sealed (`tenancy/vendor/fleet-secrets.ts`).
      *
@@ -199,6 +206,9 @@ const configSchema = z
     aiInboxTranslationModel: z.string().optional(),
     aiClassificationModel: z.string().optional(),
     aiRequireParameters: envBoolean,
+    aiReasoningExclude: envBoolean,
+    aiReasoningEffort: z.string().optional(),
+    aiCombinedToolsAndSchema: envBoolean,
 
     // Telemetry (optional)
     disableTelemetry: envBoolean,
@@ -273,6 +283,7 @@ function buildConfigFromEnv(): unknown {
     workspacePoolIdleSeconds: env('WORKSPACE_POOL_IDLE_SECONDS'),
     workspacePoolMaxEntries: env('WORKSPACE_POOL_MAX_ENTRIES'),
     workspaceRegistryTtlMs: env('WORKSPACE_REGISTRY_TTL_MS'),
+    workspaceDormantAfterHours: env('WORKSPACE_DORMANT_AFTER_HOURS'),
     fleetRootKey: env('QUACKBACK_FLEET_ROOT_KEY'),
 
     // Auth
@@ -324,6 +335,9 @@ function buildConfigFromEnv(): unknown {
     aiInboxTranslationModel: env('AI_INBOX_TRANSLATION_MODEL'),
     aiClassificationModel: env('AI_CLASSIFICATION_MODEL'),
     aiRequireParameters: env('AI_REQUIRE_PARAMETERS'),
+    aiReasoningExclude: env('AI_REASONING_EXCLUDE'),
+    aiReasoningEffort: env('AI_REASONING_EFFORT'),
+    aiCombinedToolsAndSchema: env('AI_COMBINED_TOOLS_AND_SCHEMA'),
 
     // Telemetry
     disableTelemetry: env('DISABLE_TELEMETRY'),
@@ -437,6 +451,9 @@ export const config = {
   },
   get workspacePoolMaxEntries() {
     return loadConfig().workspacePoolMaxEntries
+  },
+  get workspaceDormantAfterHours() {
+    return loadConfig().workspaceDormantAfterHours
   },
   get workspaceRegistryTtlMs() {
     return loadConfig().workspaceRegistryTtlMs
@@ -582,6 +599,15 @@ export const config = {
   get aiRequireParameters() {
     return loadConfig().aiRequireParameters
   },
+  get aiReasoningExclude() {
+    return loadConfig().aiReasoningExclude
+  },
+  get aiReasoningEffort() {
+    return loadConfig().aiReasoningEffort
+  },
+  get aiCombinedToolsAndSchema() {
+    return loadConfig().aiCombinedToolsAndSchema
+  },
 
   // Telemetry
   get disableTelemetry() {
@@ -594,11 +620,20 @@ export const config = {
   },
 
   // Platform (OAuth-app) credential source.
+  //   'control-plane' — pooled Cloud: shared app settings managed by CP.
   //   'db'  (default) — self-host: the integration_platform_credentials table + admin UI.
-  //   'env' — managed cloud: shared app creds from INTEGRATION_<PROVIDER>_<FIELD> env
-  //           (projected from OpenBao via ESO), like the CP's own STRIPE_SECRET_KEY.
+  //   'env' — optional single-tenancy: app creds from INTEGRATION_<PROVIDER>_<FIELD> env
+  //           supplied by the deployment environment.
   // Direct process.env read (like helpCenterDev) so it works without a full config load.
-  get platformCredentialsSource(): 'db' | 'env' {
+  get integrationOAuthGatewayUrl(): string | undefined {
+    return process.env.INTEGRATION_OAUTH_GATEWAY_URL
+  },
+  get integrationGatewayForwardSecret(): string | undefined {
+    return process.env.INTEGRATION_GATEWAY_FORWARD_SECRET
+  },
+
+  get platformCredentialsSource(): 'db' | 'env' | 'control-plane' {
+    if (process.env.QUACKBACK_TENANCY === 'pooled') return 'control-plane'
     return process.env.PLATFORM_CREDENTIALS_SOURCE === 'env' ? 'env' : 'db'
   },
 

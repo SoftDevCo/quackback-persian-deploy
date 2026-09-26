@@ -28,7 +28,7 @@ export function NoteMentionEmail({
   preferencesUrl,
   logoUrl,
 }: NoteMentionEmailProps) {
-  const displayName = authorName || 'یکی از هم‌تیمی‌ها'
+  const displayName = authorName || 'A teammate'
   const paragraphs = preview
     .split(/\n{2,}/)
     .map((p) => p.trim())
@@ -36,13 +36,13 @@ export function NoteMentionEmail({
 
   return (
     <EmailLayout
-      preview={`${displayName} شما را در یک یادداشت داخلی ذکر کرده است`}
+      preview={`${displayName} mentioned you in an internal note`}
       logoUrl={logoUrl}
       logoAlt={workspaceName}
     >
-      <Heading style={typography.h1}>نام شما در یک یادداشت ذکر شده است</Heading>
+      <Heading style={typography.h1}>You were mentioned in a note</Heading>
       <Text style={typography.text}>
-        {displayName} نام شما را در یک یادداشت داخلی در یک گفتگو ذکر کرده است.
+        {displayName} mentioned you in an internal note on a conversation.
       </Text>
 
       {paragraphs.length > 0 && (
@@ -77,24 +77,24 @@ export function NoteMentionEmail({
       )}
 
       <Text style={{ ...typography.textSmall, color: colors.textMuted }}>
-        یادداشت‌های داخلی فقط برای تیم شما قابل مشاهده هستند.
+        Internal notes are visible to your team only.
       </Text>
 
       <Section style={{ textAlign: 'center', marginTop: '32px', marginBottom: '32px' }}>
         <Button style={button.primary} href={conversationUrl}>
-          بازکردن گفتگو
+          Open conversation
         </Button>
       </Section>
 
       {preferencesUrl ? (
         <NotificationFooter
-          reason={`این ایمیل به این دلیل برای شما ارسال شده که نام‌تان در ${workspaceName} ذکر شده است.`}
+          reason={`You received this email because you were mentioned in ${workspaceName}.`}
           unsubscribeUrl={preferencesUrl}
-          unsubscribeLabel="مدیریت تنظیمات اعلان‌ها"
+          unsubscribeLabel="Manage notification preferences"
         />
       ) : (
         <Text style={typography.footer}>
-          این ایمیل به این دلیل برای شما ارسال شده که نام‌تان در {workspaceName} ذکر شده است.
+          You received this email because you were mentioned in {workspaceName}.
         </Text>
       )}
     </EmailLayout>

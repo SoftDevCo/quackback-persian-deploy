@@ -94,7 +94,7 @@ export function AssistantDeploymentCard({
                 ? intl.formatMessage({
                     id: 'automation.agent.deployment.unavailable',
                     defaultMessage:
-                      'Enable the support inbox in Labs to use automatic replies in Messenger.',
+                      'Turn on Support in Settings → General to use automatic replies in Messenger.',
                   })
                 : live
                   ? intl.formatMessage({
@@ -133,10 +133,10 @@ export function AssistantDeploymentCard({
               className="min-h-11 w-full sm:min-h-9 sm:w-auto"
               asChild
             >
-              <Link to="/admin/settings/labs">
+              <Link to="/admin/settings/general">
                 {intl.formatMessage({
-                  id: 'automation.agent.deployment.openLabs',
-                  defaultMessage: 'Open Labs',
+                  id: 'automation.agent.deployment.openGeneral',
+                  defaultMessage: 'Open product settings',
                 })}
               </Link>
             </Button>
@@ -178,7 +178,7 @@ export function AssistantDeploymentCard({
             ? intl.formatMessage({
                 id: 'automation.agent.deployment.enableConfirmDescription',
                 defaultMessage:
-                  'The AI agent will begin answering customers using your saved settings. Test the agent before enabling it.',
+                  'The AI agent will start answering new customer messages in Messenger using your saved settings.',
               })
             : intl.formatMessage({
                 id: 'automation.agent.deployment.pauseConfirmDescription',

@@ -254,7 +254,7 @@ describe('the real corpus', () => {
     // is a number worth watching. A second one is not forbidden — it just has
     // to be noticed and argued for here rather than accumulating quietly.
     //
-    // 0263 (two blocks), 0266, 0267 and 0269 are argued for on the same grounds
+    // 0263 (two blocks), 0266 and 0267 are argued for on the same grounds
     // as 0258: each is a `DO $$` whose body is guarded by
     // `IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '<name>')`,
     // and whose only action is adding the constraint of that exact name. The
@@ -272,6 +272,24 @@ describe('the real corpus', () => {
     // inside the fleet's gap-heal window: while they read as `mutates`, a heal
     // of any hole below them is refused, which is the capability
     // `migrator-gap-heal.test.ts` exercises.
+    //
+    // 0269 wraps two WHERE-null-or-empty UPDATEs in a DO block so a stored blob
+    // makes the second run write zero rows. A bare UPDATE at the tip would
+    // collapse that same window.
+    // 0274 checks the installed constraint definitions and updates only version 3 configs.
+    // A replay preserves widened constraints, workspace customizations and revisions.
+    // 0277 rewrites leftover widget `chat` keys and inserts chat-only macros
+    // that are not already present, so a second run writes zero rows.
+    // 0279 wraps oauth_client backfills, the oauth_client_resource FK rewrite,
+    // and the Microsoft oid rewrite so each second run writes zero rows.
+    // 0280 marks session scope behind scope predicates, so a second run writes zero rows.
+    // 0283 inserts a Labs row only where none exists, then deletes the 1h
+    // settings cache only if that insert returned a row. A second run writes
+    // zero rows. A bare CTE DELETE at the tip would collapse the gap-heal window.
+    // 0284 removes only retired delivery shapes that new writers cannot create.
+    // 0285 replaces only the old three-column link constraint and adds its
+    // scoped replacement only when absent. Real PostgreSQL replay is covered
+    // by lineage-double-apply and migrator-gap-heal.
     const vouching = files.filter(
       (f) => assessReplaySafety(f, readFileSync(join(MIGRATIONS_DIR, f), 'utf8')).vouched.length > 0
     )
@@ -281,6 +299,14 @@ describe('the real corpus', () => {
       '0259_channel_threads.sql',
       '0260_channel_threads_conversation_fk.sql',
       '0261_connectors.sql',
+      '0269_messenger_ai_default_on.sql',
+      '0274_slack_agent_gateway.sql',
+      '0277_widget_chat_to_messenger.sql',
+      '0279_better_auth_17.sql',
+      '0280_widget_session_scope.sql',
+      '0283_refined_visual_theme_default_on.sql',
+      '0284_integration_sync.sql',
+      '0285_integration_link_scope.sql',
     ])
   })
 

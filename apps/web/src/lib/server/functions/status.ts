@@ -17,6 +17,7 @@ import type {
 } from '@quackback/ids'
 import { NotFoundError } from '@/lib/shared/errors'
 import { PERMISSIONS } from '@/lib/shared/permissions'
+import { EntityIdSchema, PageLimitSchema, ReorderIdsSchema } from '@/lib/shared/schemas/taxonomy'
 import { requireAuth, getOptionalAuth, policyActorFromAuth } from './auth-helpers'
 import { resolvePortalAccessForRequest } from './portal-access'
 import {
@@ -71,6 +72,7 @@ import { enforceStatusComponentLimit } from '@/lib/server/domains/settings/tier-
 import {
   statusSettingsSchema,
   DEFAULT_STATUS_SETTINGS,
+  isStatusPagePublished,
   type StatusSettings,
 } from '@/lib/shared/status-settings'
 import type { Actor } from '@/lib/server/policy/types'
@@ -205,8 +207,8 @@ export const updateStatusComponentFn = createServerFn({ method: 'POST' })
     })
   })
 
-const idSchema = z.object({ id: z.string() })
-const reorderIdsSchema = z.object({ ids: z.array(z.string()).min(1) })
+const idSchema = EntityIdSchema
+const reorderIdsSchema = ReorderIdsSchema
 
 export const deleteStatusComponentFn = createServerFn({ method: 'POST' })
   .validator(idSchema)
@@ -448,7 +450,7 @@ const listStatusIncidentsAdminSchema = z.object({
   state: z.enum(['active', 'resolved', 'all']).optional(),
   search: z.string().trim().max(200).optional(),
   cursor: z.string().optional(),
-  limit: z.number().int().positive().max(100).optional(),
+  limit: PageLimitSchema,
 })
 
 export const listStatusIncidentsAdminFn = createServerFn({ method: 'GET' })
@@ -640,7 +642,7 @@ export const deleteStatusIncidentTemplateFn = createServerFn({ method: 'POST' })
 
 const listStatusSubscriptionsSchema = z.object({
   cursor: z.string().optional(),
-  limit: z.number().int().positive().max(100).optional(),
+  limit: PageLimitSchema,
   search: z.string().trim().max(200).optional(),
 })
 
@@ -743,9 +745,10 @@ interface StatusPageGateResult {
  *
  *   1. Portal access (a private portal must not leak status data to a caller
  *      the portal-access resolver denies — same outer gate as changelog).
- *   2. `statusSettings.enabled` — the workspace's own master switch.
- *   3. The `statusPage` feature flag.
- *   4. The status audience ladder (§4): public / authenticated / segments.
+ *   2. Published state via `isStatusPagePublished` (`statusPage` flag AND
+ *      `statusSettings.enabled !== false`, so a legacy unpublished page
+ *      stays dark until the General Status toggle is flipped).
+ *   3. The status audience ladder (§4): public / authenticated / segments.
  *
  * Never throws; callers translate `available: false` into the shape their
  * endpoint contract expects (404 for a single-entity read, empty list/array
@@ -761,12 +764,8 @@ async function resolveStatusPageGate(): Promise<StatusPageGateResult> {
   const authCtx = await getOptionalAuth()
   const actor = await policyActorFromAuth(authCtx)
 
-  if (!settings.enabled) {
-    return { available: false, actor, settings }
-  }
-
   const { isFeatureEnabled } = await import('@/lib/server/domains/settings/settings.service')
-  if (!(await isFeatureEnabled('statusPage'))) {
+  if (!isStatusPagePublished({ statusPage: await isFeatureEnabled('statusPage') }, settings)) {
     return { available: false, actor, settings }
   }
 
@@ -852,7 +851,7 @@ export const getStatusUptimeFn = createServerFn({ method: 'GET' })
 
 const listStatusHistorySchema = z.object({
   cursor: z.string().optional(),
-  limit: z.number().int().positive().max(100).optional(),
+  limit: PageLimitSchema,
 })
 
 /** Paginated resolved-incident history (public view). */

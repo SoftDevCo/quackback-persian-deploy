@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useKeyboardSubmit } from '@/lib/client/hooks/use-keyboard-submit'
 import { ModalFooter } from '@/components/shared/modal-footer'
 import { useForm } from 'react-hook-form'
@@ -22,10 +22,19 @@ import { ChangelogMetadataSidebarContent } from './changelog-metadata-sidebar-co
 
 interface CreateChangelogDialogProps {
   onChangelogCreated?: () => void
+  /** Controlled open state. When provided, the built-in trigger button is hidden. */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
-export function CreateChangelogDialog({ onChangelogCreated }: CreateChangelogDialogProps) {
-  const [open, setOpen] = useState(false)
+export function CreateChangelogDialog({
+  onChangelogCreated,
+  open: openProp,
+  onOpenChange,
+}: CreateChangelogDialogProps) {
+  const [internalOpen, setInternalOpen] = useState(false)
+  const isControlled = openProp !== undefined
+  const open = isControlled ? openProp : internalOpen
   const [contentJson, setContentJson] = useState<JSONContent | null>(null)
   const [linkedPostIds, setLinkedPostIds] = useState<PostId[]>([])
   const [categoryIds, setCategoryIds] = useState<ChangelogCategoryId[]>([])
@@ -36,6 +45,8 @@ export function CreateChangelogDialog({ onChangelogCreated }: CreateChangelogDia
   const [featuredImageUrl, setFeaturedImageUrl] = useState<string | null>(null)
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false)
   const createChangelogMutation = useCreateChangelog()
+  const createMutationRef = useRef(createChangelogMutation)
+  createMutationRef.current = createChangelogMutation
 
   const form = useForm({
     resolver: standardSchemaResolver(createChangelogSchema),
@@ -50,7 +61,13 @@ export function CreateChangelogDialog({ onChangelogCreated }: CreateChangelogDia
   const handleContentChange = useCallback(
     (json: JSONContent, _html: string, markdown: string) => {
       setContentJson(json)
-      form.setValue('content', markdown, { shouldValidate: true })
+      form.setValue('content', markdown, { shouldValidate: false, shouldDirty: true })
+      // Only drop a *failed* mutation. Resetting while a save is in flight
+      // detaches onSuccess, so the dialog would stay open after a successful
+      // create and a later Save could duplicate the entry.
+      if (createMutationRef.current.isError) {
+        createMutationRef.current.reset()
+      }
     },
     [form]
   )
@@ -102,7 +119,7 @@ export function CreateChangelogDialog({ onChangelogCreated }: CreateChangelogDia
       },
       {
         onSuccess: () => {
-          setOpen(false)
+          handleOpenChange(false)
           resetFormState()
           onChangelogCreated?.()
         },
@@ -111,7 +128,11 @@ export function CreateChangelogDialog({ onChangelogCreated }: CreateChangelogDia
   })
 
   function handleOpenChange(isOpen: boolean) {
-    setOpen(isOpen)
+    if (isControlled) {
+      onOpenChange?.(isOpen)
+    } else {
+      setInternalOpen(isOpen)
+    }
     if (!isOpen) {
       resetFormState()
     }
@@ -135,12 +156,14 @@ export function CreateChangelogDialog({ onChangelogCreated }: CreateChangelogDia
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button size="sm">
-          <PlusIcon className="h-4 w-4 mr-1.5" />
-          New Entry
-        </Button>
-      </DialogTrigger>
+      {!isControlled && (
+        <DialogTrigger asChild>
+          <Button size="sm">
+            <PlusIcon className="h-4 w-4 mr-1.5" />
+            New Entry
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent
         className="w-[95vw] sm:w-[90vw] lg:max-w-5xl xl:max-w-6xl h-[85vh] p-0 gap-0 overflow-hidden flex flex-col"
         onKeyDown={handleKeyDown}
@@ -153,7 +176,7 @@ export function CreateChangelogDialog({ onChangelogCreated }: CreateChangelogDia
             {/* Main content area - 2 column layout on desktop */}
             <div className="flex flex-1 min-h-0">
               {/* Left: Content editor */}
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <ChangelogFormFields
                   form={form}
                   contentJson={contentJson}
@@ -188,7 +211,7 @@ export function CreateChangelogDialog({ onChangelogCreated }: CreateChangelogDia
 
             {/* Footer */}
             <ModalFooter
-              onCancel={() => setOpen(false)}
+              onCancel={() => handleOpenChange(false)}
               submitLabel={getSubmitButtonText()}
               isPending={createChangelogMutation.isPending}
             >

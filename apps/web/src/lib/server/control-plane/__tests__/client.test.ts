@@ -19,7 +19,11 @@ import {
   openOwnerWorkspace,
   transferWorkspaceOwnership,
   reportTrialActivation,
+  reportWorkspaceUsage,
   requestWorkspaceIdentityMutation,
+  createHostedBillingSession,
+  normalizeBillingCatalogue,
+  startWorkspaceTrial,
 } from '../client'
 
 beforeEach(() => {
@@ -96,6 +100,93 @@ describe('workspace control-plane credential', () => {
     expect(init.body).toBeUndefined()
   })
 
+  it('keeps pro/business/enterprise catalogue slugs and maps leftover growth/scale', () => {
+    const normalised = normalizeBillingCatalogue({
+      version: 1,
+      currency: 'usd',
+      annualDiscountMonths: 2,
+      recommendedPlanId: 'pro',
+      brandingRemoval: { monthlyCents: 5900, annualCents: 59000 },
+      lastTrialPlanId: 'scale',
+      trialedPlanIds: ['pro', 'business'],
+      aiIncludedCentsPerMonth: { pro: 1000, business: 3000, scale: 10000 },
+      plans: [
+        {
+          id: 'pro',
+          name: 'Pro',
+          rank: 1,
+          priceMonthlyCents: 3700,
+          priceYearlyCents: 34800,
+          billedPer: 'workspace',
+          bestFor: 'Small teams',
+          highlights: [],
+          recommended: true,
+        },
+        {
+          id: 'business',
+          name: 'Business',
+          rank: 2,
+          priceMonthlyCents: 7500,
+          priceYearlyCents: 70800,
+          billedPer: 'workspace',
+          bestFor: 'Growing teams',
+          highlights: [],
+          recommended: false,
+        },
+        {
+          id: 'scale',
+          name: 'Enterprise',
+          rank: 3,
+          priceMonthlyCents: 12900,
+          priceYearlyCents: 118800,
+          billedPer: 'workspace',
+          bestFor: 'Security',
+          highlights: [],
+          recommended: false,
+        },
+      ],
+    })
+    expect(normalised.recommendedPlanId).toBe('pro')
+    expect(normalised.lastTrialPlanId).toBe('enterprise')
+    expect(normalised.trialedPlanIds).toEqual(['pro', 'business'])
+    expect(normalised.aiIncludedCentsPerMonth).toEqual({
+      pro: 1000,
+      business: 3000,
+      enterprise: 10000,
+    })
+    expect(normalised.plans.map((plan) => plan.id)).toEqual(['pro', 'business', 'enterprise'])
+  })
+
+  it('forwards checkout and trial aliases as canonical plan ids', async () => {
+    hoisted.fetch.mockResolvedValue(
+      new Response(JSON.stringify({ url: 'https://billing.example.com/checkout' }), { status: 200 })
+    )
+    await createHostedBillingSession({
+      action: 'checkout',
+      planId: 'scale',
+      billingPeriod: 'annual',
+    })
+    const [, checkoutInit] = hoisted.fetch.mock.calls[0] as [URL, RequestInit]
+    expect(JSON.parse(String(checkoutInit.body))).toMatchObject({
+      action: 'checkout',
+      planId: 'enterprise',
+    })
+
+    hoisted.fetch.mockResolvedValue(
+      new Response(JSON.stringify({ status: 'started' }), { status: 200 })
+    )
+    await startWorkspaceTrial('pro')
+    const [, trialInit] = hoisted.fetch.mock.calls[1] as [URL, RequestInit]
+    expect(JSON.parse(String(trialInit.body))).toEqual({ planId: 'pro' })
+
+    hoisted.fetch.mockResolvedValue(
+      new Response(JSON.stringify({ status: 'started' }), { status: 200 })
+    )
+    await startWorkspaceTrial('growth')
+    const [, leftoverTrial] = hoisted.fetch.mock.calls[2] as [URL, RequestInit]
+    expect(JSON.parse(String(leftoverTrial.body))).toEqual({ planId: 'pro' })
+  })
+
   it('lists owner workspaces over GET without a workspace id', async () => {
     hoisted.fetch.mockResolvedValue(
       new Response(JSON.stringify({ workspaces: [] }), { status: 200 })
@@ -120,6 +211,31 @@ describe('workspace control-plane credential', () => {
     expect(JSON.parse(String(init.body))).toEqual({ toEmail: 'mate@example.com' })
     expect(String(init.body)).not.toContain('workspaceId')
     expect(String(init.body)).not.toContain('instanceId')
+  })
+
+  it('posts a usage snapshot without a workspace authority field', async () => {
+    hoisted.fetch.mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    await reportWorkspaceUsage({
+      month: '2026-07',
+      aiTokens: 10,
+      emailsSent: 3,
+      teamSeatCount: 2,
+      pendingInviteCount: 1,
+      postCount: 4,
+      boardCount: 1,
+    })
+    const [url, init] = hoisted.fetch.mock.calls[0] as [URL, RequestInit]
+    expect(String(url)).toContain('/api/v1/internal/usage/report')
+    expect(JSON.parse(String(init.body))).toEqual({
+      month: '2026-07',
+      aiTokens: 10,
+      emailsSent: 3,
+      teamSeatCount: 2,
+      pendingInviteCount: 1,
+      postCount: 4,
+      boardCount: 1,
+    })
+    expect(String(init.body)).not.toContain('workspaceId')
   })
 
   it('pushes desired seats without a workspace authority field', async () => {

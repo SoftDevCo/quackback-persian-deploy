@@ -76,16 +76,16 @@ describe('resolveLocale', () => {
     expect(resolveLocale('ru-RU,ru;q=0.9,en;q=0.8')).toBe('ru')
   })
   it('falls back to default when no supported locale found', () => {
-    expect(resolveLocale('zz,xx;q=0.5')).toBe('fa')
-    expect(resolveLocale('')).toBe('fa')
-    expect(resolveLocale(null)).toBe('fa')
+    expect(resolveLocale('zz,xx;q=0.5')).toBe('en')
+    expect(resolveLocale('')).toBe('en')
+    expect(resolveLocale(null)).toBe('en')
   })
   it('respects quality weights', () => {
     expect(resolveLocale('en;q=0.5,de;q=0.9')).toBe('de')
   })
   it('ignores entries marked not-acceptable with q=0', () => {
     // RFC 7231: q=0 means the client explicitly rejects that language.
-    expect(resolveLocale('de;q=0')).toBe('fa')
+    expect(resolveLocale('de;q=0')).toBe('en')
     expect(resolveLocale('de;q=0,fr;q=0.5')).toBe('fr')
   })
   it('returns explicit locale when provided', () => {
@@ -120,7 +120,7 @@ describe('isRtlLocale', () => {
 })
 
 describe('SUPPORTED_LOCALES', () => {
-  it('includes en as a supported locale', () => {
+  it('includes en as default', () => {
     expect(SUPPORTED_LOCALES).toContain('en')
   })
   it('includes ru', () => {
@@ -130,7 +130,7 @@ describe('SUPPORTED_LOCALES', () => {
     expect(SUPPORTED_LOCALES).toContain('zh-cn')
     expect(SUPPORTED_LOCALES).toContain('zh-tw')
   })
-  it('DEFAULT_LOCALE is fa', () => {
-    expect(DEFAULT_LOCALE).toBe('fa')
+  it('DEFAULT_LOCALE is en', () => {
+    expect(DEFAULT_LOCALE).toBe('en')
   })
 })

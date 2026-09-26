@@ -6,13 +6,13 @@ Regenerate with `bunx vitest run apps/web/src/lib/server/policy/migration-contra
 
 ## Summary
 
-Migrations scanned: 246. Migrations with destructive DDL: 33.
+Migrations scanned: 265. Migrations with destructive DDL: 36.
 
 | Kind | Occurrences |
 | --- | --- |
 | DROP COLUMN | 22 |
 | DROP TABLE | 21 |
-| DROP CONSTRAINT | 9 |
+| DROP CONSTRAINT | 14 |
 | RENAME COLUMN | 15 |
 | RENAME TO (table) | 13 |
 | SET NOT NULL | 4 |
@@ -56,6 +56,9 @@ Migrations scanned: 246. Migrations with destructive DDL: 33.
 | 0259_channel_threads.sql | DROP CONSTRAINT channel_accounts.channel_accounts_channel_check; DROP CONSTRAINT channel_accounts.channel_accounts_role_check | annotated (safe-after 0.13.2) |
 | 0262_drop_assistant_custom_actions.sql | DROP TABLE assistant_actions | annotated (safe-after 0.13.2) |
 | 0267_drop_workspace_billing.sql | DROP TABLE billing_webhook_events; DROP TABLE billing_usage_events; DROP TABLE billing_subscription_state | annotated (safe-after 0.13.2) |
+| 0274_slack_agent_gateway.sql | DROP CONSTRAINT assistant_pending_actions.assistant_pending_actions_parent_check; DROP CONSTRAINT assistant_guidance_rules.assistant_guidance_rules_agent_check | annotated (safe-after 0.13.2) |
+| 0279_better_auth_17.sql | DROP CONSTRAINT oauth_client_resource.oauth_client_resource_resource_id_oauth_resource_id_fk | annotated (safe-after 0.13.2) |
+| 0285_integration_link_scope.sql | DROP CONSTRAINT post_external_links.post_external_links_type_external_post_unique; DROP CONSTRAINT ticket_external_links.ticket_external_links_type_external_ticket_unique | annotated (safe-after 0.13.3) |
 
 ## Grandfathered (29)
 

@@ -23,8 +23,6 @@ import {
   deleteLogoKey,
   saveHeaderLogoKey,
   deleteHeaderLogoKey,
-  savePortalOgImageKey,
-  deletePortalOgImageKey,
   saveFaviconKey,
   deleteFaviconKey,
   updateHeaderDisplayMode,
@@ -36,8 +34,10 @@ import {
 import { getPublicUrlOrNull } from '@/lib/server/storage/s3'
 import { actorFromAuth, recordAuditEvent, type AuditEventType } from '@/lib/server/audit/log'
 import { requireAuth } from './auth-helpers'
+import { teamMemberWhere } from '@/lib/server/domains/principals/principal.service'
+import { resolveUserAvatarUrl } from '@/lib/server/domains/principals/principal-display'
 import { getSession } from '@/lib/server/auth/session'
-import { db, principal, user, invitation, account, eq, ne, and } from '@/lib/server/db'
+import { db, principal, user, invitation, account, eq, and } from '@/lib/server/db'
 import { PERMISSIONS } from '@/lib/shared/permissions'
 import { officeHoursScheduleSchema } from '@/lib/server/domains/settings/settings.office-hours'
 import { changelogSettingsSchema } from '@/lib/shared/changelog-settings'
@@ -138,6 +138,8 @@ export const fetchTeamMembersAndInvitations = createServerFn({ method: 'GET' }).
         userId: principal.userId,
         avatarKey: principal.avatarKey,
         avatarUrl: principal.avatarUrl,
+        userImage: user.image,
+        userImageKey: user.imageKey,
         userName: user.name,
         userEmail: user.email,
         lastSignInAt: sqlOp<Date | null>`${lastSession.lastSignInAt}`,
@@ -145,7 +147,7 @@ export const fetchTeamMembersAndInvitations = createServerFn({ method: 'GET' }).
       .from(principal)
       .innerJoin(user, eq(principal.userId, user.id))
       .leftJoin(lastSession, eq(lastSession.userId, user.id))
-      .where(ne(principal.role, 'user'))
+      .where(teamMemberWhere())
 
     // Serialise to ISO string on the boundary so the client type
     // stays narrow (`string | null`). `toIsoStringOrNull` handles
@@ -205,7 +207,11 @@ export const fetchTeamMembersAndInvitations = createServerFn({ method: 'GET' }).
 
     for (const m of members) {
       if (m.userId) {
-        avatarMap[m.userId] = buildAvatarUrl(m)
+        avatarMap[m.userId] = resolveUserAvatarUrl({
+          userImage: m.userImage,
+          userImageKey: m.userImageKey,
+          principalAvatarUrl: buildAvatarUrl(m),
+        })
       }
     }
 
@@ -234,16 +240,13 @@ export const fetchTeamMembersAndInvitations = createServerFn({ method: 'GET' }).
       expiresAt: inv.expiresAt.toISOString(),
     }))
 
-    // Seat line data: same predicate as enforceSeatLimit / the usage report
-    // (human admin/member principals), plus the plan cap (null = unlimited).
     const { getTierLimits } = await import('@/lib/server/domains/settings/tier-limits.service')
-    const limits = await getTierLimits()
-    const [seatRow] = await db
-      .select({ count: sqlOp<number>`count(*)`.as('count') })
-      .from(principal)
-      .where(and(inArray(principal.role, ['admin', 'member']), eq(principal.type, 'user')))
+    const { countSeatUsage } = await import('@/lib/server/domains/principals/seat-usage')
+    const [limits, seats] = await Promise.all([getTierLimits(), countSeatUsage()])
     const seatUsage = {
-      used: Number(seatRow?.count ?? 0),
+      used: seats.used,
+      members: seats.members,
+      pendingInvites: seats.pendingInvites,
       limit: limits.maxTeamSeats,
     }
 
@@ -338,8 +341,6 @@ export const updatePortalConfigSchema = z.object({
   openSignup: z.boolean().optional(),
   welcomeCard: z
     .object({
-      enabled: z.boolean().optional(),
-      title: z.string().optional(),
       // Body is re-sanitized server-side by normalizeWelcomeCardInput;
       // tiptapContentSchema gates the shape at the boundary.
       body: tiptapContentSchema.optional(),
@@ -609,13 +610,13 @@ export const saveLogoKeyFn = createServerFn({ method: 'POST' })
   .validator(saveLogoKeySchema)
   .handler(async ({ data }) => {
     log.info({ key: data.key }, 'save logo key')
-    await requireAuth({ permission: PERMISSIONS.SETTINGS_BRANDING })
+    await requireAuth({ permission: PERMISSIONS.SETTINGS_MANAGE })
     return await saveLogoKey(data.key)
   })
 
 export const deleteLogoFn = createServerFn({ method: 'POST' }).handler(async () => {
   log.info('delete logo')
-  await requireAuth({ permission: PERMISSIONS.SETTINGS_BRANDING })
+  await requireAuth({ permission: PERMISSIONS.SETTINGS_MANAGE })
   return await deleteLogoKey()
 })
 
@@ -633,31 +634,17 @@ export const deleteHeaderLogoFn = createServerFn({ method: 'POST' }).handler(asy
   return await deleteHeaderLogoKey()
 })
 
-export const savePortalOgImageKeyFn = createServerFn({ method: 'POST' })
-  .validator(saveLogoKeySchema)
-  .handler(async ({ data }) => {
-    log.info({ key: data.key }, 'save portal og image key')
-    await requireAuth({ permission: PERMISSIONS.SETTINGS_BRANDING })
-    return await savePortalOgImageKey(data.key)
-  })
-
-export const deletePortalOgImageFn = createServerFn({ method: 'POST' }).handler(async () => {
-  log.info('delete portal og image')
-  await requireAuth({ permission: PERMISSIONS.SETTINGS_BRANDING })
-  return await deletePortalOgImageKey()
-})
-
 export const saveFaviconKeyFn = createServerFn({ method: 'POST' })
   .validator(saveLogoKeySchema)
   .handler(async ({ data }) => {
     log.info({ key: data.key }, 'save favicon key')
-    await requireAuth({ permission: PERMISSIONS.SETTINGS_BRANDING })
+    await requireAuth({ permission: PERMISSIONS.SETTINGS_MANAGE })
     return await saveFaviconKey(data.key)
   })
 
 export const deleteFaviconFn = createServerFn({ method: 'POST' }).handler(async () => {
   log.info('delete favicon')
-  await requireAuth({ permission: PERMISSIONS.SETTINGS_BRANDING })
+  await requireAuth({ permission: PERMISSIONS.SETTINGS_MANAGE })
   return await deleteFaviconKey()
 })
 
@@ -753,8 +740,8 @@ export const fetchWidgetConfig = createServerFn({ method: 'GET' }).handler(async
 export const fetchWidgetSecret = createServerFn({ method: 'GET' }).handler(async () => {
   log.debug('fetch widget secret')
   await requireAuth({ permission: PERMISSIONS.SETTINGS_MANAGE })
-  const { getWidgetSecret } = await import('@/lib/server/domains/settings/settings.widget')
-  return await getWidgetSecret()
+  const { ensureWidgetSecret } = await import('@/lib/server/domains/settings/settings.widget')
+  return await ensureWidgetSecret()
 })
 
 const messengerConfigInputSchema = z.object({
@@ -859,8 +846,6 @@ const updateWidgetConfigSchema = z.object({
       z.object({
         welcomeMessage: z.string().max(1000).optional(),
         offlineMessage: z.string().max(1000).optional(),
-        greeting: z.string().max(120).optional(),
-        subtitle: z.string().max(200).optional(),
       })
     )
     .optional(),
@@ -870,28 +855,26 @@ export const updateWidgetConfigFn = createServerFn({ method: 'POST' })
   .validator(updateWidgetConfigSchema)
   .handler(async ({ data }) => {
     log.info({ enabled: data.enabled, position: data.position }, 'update widget config')
-    await requireAuth({ permission: PERMISSIONS.SETTINGS_MANAGE })
-    const { updateWidgetConfig } = await import('@/lib/server/domains/settings/settings.widget')
-    return await updateWidgetConfig(data)
-  })
-
-export const configureWidgetForActivationFn = createServerFn({ method: 'POST' })
-  .validator(z.object({ mode: z.enum(['messenger', 'feedback']) }))
-  .handler(async ({ data }) => {
     const auth = await requireAuth({ permission: PERMISSIONS.SETTINGS_MANAGE })
-    const { configureWidgetForActivation } =
-      await import('@/lib/server/domains/settings/settings.widget')
-    const configured = await configureWidgetForActivation(data.mode)
-    const { emitPlgEvent } = await import('@/lib/server/plg-events')
-    await emitPlgEvent(
-      {
-        name: 'widget_configured',
-        outcome: data.mode === 'messenger' ? 'customer_support' : 'product_feedback',
-        artifactType: 'widget',
-      },
-      { workspaceId: auth.settings.id, principalId: auth.principal.id }
-    )
-    return configured
+    const { updateWidgetConfig } = await import('@/lib/server/domains/settings/settings.widget')
+    const { parseWidgetConfig, requireSettings } =
+      await import('@/lib/server/domains/settings/settings.helpers')
+    const previous = data.enabled === true ? await requireSettings() : null
+    const updated = await updateWidgetConfig(data)
+    if (data.enabled === true && previous && !parseWidgetConfig(previous.widgetConfig).enabled) {
+      const { getSetupState } = await import('@/lib/shared/db-types')
+      const { emitPlgEvent } = await import('@/lib/server/plg-events')
+      const useCase = getSetupState(previous.setupState ?? null)?.useCase
+      await emitPlgEvent(
+        {
+          name: 'widget_configured',
+          outcome: useCase === 'customer_support' ? 'customer_support' : 'product_feedback',
+          artifactType: 'widget',
+        },
+        { workspaceId: auth.settings.id, principalId: auth.principal.id }
+      )
+    }
+    return updated
   })
 
 export const saveWidgetHeroImageKeyFn = createServerFn({ method: 'POST' })
@@ -915,6 +898,14 @@ export const regenerateWidgetSecretFn = createServerFn({ method: 'POST' }).handl
   await requireAuth({ permission: PERMISSIONS.SETTINGS_MANAGE })
   const { regenerateWidgetSecret } = await import('@/lib/server/domains/settings/settings.widget')
   return await regenerateWidgetSecret()
+})
+
+export const mintWidgetInstallCodeFn = createServerFn({ method: 'POST' }).handler(async () => {
+  log.info('mint widget install pairing code')
+  await requireAuth({ permission: PERMISSIONS.SETTINGS_MANAGE })
+  const { mintWidgetInstallCode } =
+    await import('@/lib/server/domains/settings/widget-install-pairing')
+  return await mintWidgetInstallCode()
 })
 
 // ============================================
@@ -1115,12 +1106,18 @@ const moderationDefaultSchema = z.object({
 export const getEmailChannelStatusFn = createServerFn({ method: 'GET' }).handler(async () => {
   log.debug('get email channel status')
   await requireAuth({ permission: PERMISSIONS.SETTINGS_MANAGE })
-  const { getEmailProvider } = await import('@quackback/email')
+  const { getEmailProvider, getEmailFrom } = await import('@quackback/email')
   const { isEmailInboundConfigured, inboundMintDomain } =
     await import('@/lib/server/domains/conversation/conversation.email-channel')
+  let fromAddress: string | null = null
+  try {
+    fromAddress = getEmailFrom()
+  } catch {
+    fromAddress = null
+  }
   return {
     provider: getEmailProvider(),
-    fromAddress: process.env.EMAIL_FROM ?? null,
+    fromAddress,
     inboundConfigured: isEmailInboundConfigured(),
     // The domain as every reader of it resolves it, not as it was typed. A value
     // naming no single domain resolves to none, so this surface reports the

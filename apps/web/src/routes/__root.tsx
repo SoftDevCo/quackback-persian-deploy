@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { Component, type ReactNode } from 'react'
+import { Component, useLayoutEffect, type ReactNode } from 'react'
 import type { Role } from '@/lib/shared/roles'
 import type { QueryClient } from '@tanstack/react-query'
 import {
@@ -17,6 +17,7 @@ import {
 } from '@/lib/shared/db-types'
 import { isAdmin } from '@/lib/shared/roles'
 import appCss from '../globals.css?url'
+import refinedThemeCss from '../styles/labs/refined-theme.css?url'
 import { getBootstrapData, type BootstrapData } from '@/lib/server/functions/bootstrap'
 import type { WorkspaceSettings } from '@/lib/shared/types/settings'
 import { redactSettingsForClient } from '@/lib/shared/redact-portal-config'
@@ -28,6 +29,11 @@ import { OttHandler } from '@/components/shared/ott-handler'
 import { VisitorBeacon } from '@/components/shared/visitor-beacon'
 import { documentLocale, htmlLangDir } from '@/lib/shared/document-locale'
 import { normalizeLocale, DEFAULT_LOCALE, type SupportedLocale } from '@/lib/shared/i18n'
+import {
+  applyVisualThemeToDocument,
+  visualThemeAttribute,
+  type VisualTheme,
+} from '@/lib/shared/labs'
 
 export interface RouterContext {
   queryClient: QueryClient
@@ -43,6 +49,8 @@ export interface RouterContext {
   updateBannerDismissedVersion?: BootstrapData['updateBannerDismissedVersion']
   billingEnabled?: boolean
   cloudEnabled?: boolean
+  /** Effective Labs appearance. Independent of light/dark preference. */
+  visualTheme?: VisualTheme
 }
 
 // Paths that are allowed before onboarding is complete
@@ -56,6 +64,7 @@ const ONBOARDING_EXEMPT_PATHS = [
   '/oauth/',
   '/.well-known/',
   '/widget',
+  '/e2e/',
 ]
 
 export function isOnboardingExempt(pathname: string): boolean {
@@ -78,6 +87,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       billingEnabled,
       cloudEnabled,
     } = await getBootstrapData()
+    const visualTheme: VisualTheme = settings?.visualTheme === 'refined' ? 'refined' : 'legacy'
 
     if (!isOnboardingExempt(location.pathname)) {
       const setupState = getSetupState(settings?.settings?.setupState ?? null)
@@ -95,8 +105,9 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     // Redact server-only material from the settings placed into the router
     // context — everything returned here is dehydrated into the SSR HTML.
     // redactSettingsForClient strips the widgetSecret/tier/setup columns from
-    // the raw row and the access policy fields (allowedDomains, widgetSignIn,
-    // allowedSegmentIds) from portalConfig, recursively covering both the
+    // the raw row, the access policy fields (allowedDomains, widgetSignIn,
+    // allowedSegmentIds) from portalConfig, and non-public statusConfig fields
+    // (segment ids, email kill-switch), recursively covering both the
     // parsed WorkspaceSettings shape and the raw DB row riding on `.settings`.
     // Nothing on the client legitimately reads any of it — the admin
     // Security → Portal tab fetches the full config via its own
@@ -132,6 +143,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       updateBannerDismissedVersion,
       billingEnabled,
       cloudEnabled,
+      visualTheme,
     }
   },
   head: () => ({
@@ -163,6 +175,10 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       {
         rel: 'stylesheet',
         href: appCss,
+      },
+      {
+        rel: 'stylesheet',
+        href: refinedThemeCss,
       },
       {
         rel: 'alternate',
@@ -233,14 +249,23 @@ class SafeRootDocument extends Component<{ children: ReactNode }, { hasError: bo
 // feel like they crossed into a different product.
 const NON_PORTAL_PREFIXES = ['/admin', '/onboarding', '/api', '/complete-signup']
 
+function VisualThemeSync({ visualTheme }: { visualTheme: VisualTheme }) {
+  useLayoutEffect(() => {
+    applyVisualThemeToDocument(visualTheme)
+  }, [visualTheme])
+  return null
+}
+
 function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
-  const { settings, themeCookie, prefersColorScheme, acceptLanguageLocale } =
+  const { settings, themeCookie, prefersColorScheme, acceptLanguageLocale, visualTheme } =
     Route.useRouteContext()
+  const resolvedVisualTheme: VisualTheme =
+    visualTheme === 'refined' || settings?.visualTheme === 'refined' ? 'refined' : 'legacy'
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   // structuralSharing keeps the array reference stable across store updates that
   // don't change the matched routes, so RootDocument doesn't re-render every tick.
   const routeIds = useRouterState({
-    select: (s) => s.matches.map((m) => m.routeId),
+    select: (s): string[] => s.matches.map((m) => m.routeId),
     structuralSharing: true,
   })
   // The widget honors a `?locale=` override (its SDK appends it); read it so the
@@ -303,12 +328,14 @@ function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
       dir={dir}
       className={themeClass}
       style={{ colorScheme }}
+      data-visual-theme={visualThemeAttribute(resolvedVisualTheme)}
       suppressHydrationWarning
     >
       <head>
         <HeadContent />
       </head>
       <body className="min-h-screen bg-background font-sans antialiased">
+        <VisualThemeSync visualTheme={resolvedVisualTheme} />
         <ThemeProvider
           attribute="class"
           defaultTheme={defaultTheme}

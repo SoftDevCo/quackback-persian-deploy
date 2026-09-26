@@ -18,6 +18,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { claimMappingFor, identityMappingFor } from '@/lib/shared/oidc-claim-mapping'
 
 type AnyHandler = (args: { data: Record<string, unknown> }) => Promise<unknown>
 
@@ -141,7 +142,7 @@ describe('startSsoTestFn', () => {
     expect(result.authorizeUrl).toMatch(/^https:\/\/idp\/auth\?/)
     // Redirect URI is the provider's own production callback.
     expect(result.authorizeUrl).toMatch(
-      /redirect_uri=https%3A%2F%2Fqb\.test%2Fapi%2Fauth%2Foauth2%2Fcallback%2Fsso/
+      /redirect_uri=https%3A%2F%2Fqb\.test%2Fapi%2Fauth%2Fcallback%2Fsso/
     )
     // PKCE is mandatory for OAuth 2.1 IdPs and ignored by IdPs that don't
     // support it — the authorize URL must carry an S256 challenge pair.
@@ -312,12 +313,58 @@ describe('startSsoTestFn', () => {
 
     // Redirect URI must be the provider's OWN callback, not the legacy sso path.
     expect(result.authorizeUrl).toMatch(
-      /redirect_uri=https%3A%2F%2Fqb\.test%2Fapi%2Fauth%2Foauth2%2Fcallback%2Foidc_abc123/
+      /redirect_uri=https%3A%2F%2Fqb\.test%2Fapi%2Fauth%2Fcallback%2Foidc_abc123/
     )
 
     // Session must carry the correct registrationId.
     const [, session] = hoisted.cacheSet.mock.calls[0] as [string, { registrationId: string }]
     expect(session.registrationId).toBe('oidc_abc123')
+  })
+
+  it('forwards stored profile paths through the shared identity mapping adapter', async () => {
+    const claimMapping = {
+      profile: {
+        sources: ['accessTokenJwt', 'idToken'],
+        claims: { id: 'oid', email: 'upn', name: 'preferred_username' },
+      },
+    }
+    hoisted.listIdentityProviders.mockResolvedValue([{ ...ssoProvider, claimMapping }])
+    hoisted.getIdentityProviderCredentials.mockResolvedValue({ clientSecret: 'secret' })
+    hoisted.safeFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          issuer: 'https://idp',
+          authorization_endpoint: 'https://idp/auth',
+          token_endpoint: 'https://idp/token',
+          jwks_uri: 'https://idp/jwks',
+        }),
+        { status: 200 }
+      )
+    )
+    hoisted.cacheSet.mockResolvedValue(undefined)
+
+    await startSsoTest({ data: { registrationId: 'sso' } })
+
+    const [, session] = hoisted.cacheSet.mock.calls[0] as [
+      string,
+      {
+        identityMapping?: {
+          sources?: string[]
+          idClaim?: string
+          emailClaim?: string
+          nameClaim?: string
+        }
+        claimMapping?: unknown
+      },
+    ]
+    expect(session.identityMapping).toEqual(identityMappingFor(claimMapping))
+    expect(session.identityMapping).toEqual({
+      sources: ['accessTokenJwt', 'idToken'],
+      idClaim: 'oid',
+      emailClaim: 'upn',
+      nameClaim: 'preferred_username',
+    })
+    expect(session.claimMapping).toEqual(claimMappingFor(claimMapping))
   })
 })
 

@@ -22,10 +22,13 @@ import {
   useMemo,
   useRef,
   useState,
+  type ClipboardEvent,
+  type DragEvent,
   type ReactNode,
   type RefObject,
 } from 'react'
 import { useRouteContext } from '@tanstack/react-router'
+import { canDeleteAgentMessage, canEditAgentMessage } from '@/components/conversation/message-edit'
 import {
   PaperAirplaneIcon,
   PaperClipIcon,
@@ -60,6 +63,7 @@ import {
   sendAgentMessageFn,
   addConversationNoteFn,
   deleteConversationMessageFn,
+  editConversationMessageFn,
   addMessageReactionFn,
   removeMessageReactionFn,
   setMessageFlagFn,
@@ -69,6 +73,15 @@ import {
   setConversationStatusFn,
 } from '@/lib/server/functions/conversation'
 import { isMissingRequiredAttributesMessage } from '@/lib/shared/conversation/attribute-values'
+import {
+  channelCloseActionLabel,
+  channelCloseFailureToast,
+  channelCloseToast,
+  channelReplyPlaceholder,
+  channelShowsEndConversation,
+  githubIssuePeopleFromMessages,
+  isNativeIssueChannel,
+} from '@/lib/shared/channels'
 import {
   sendTicketMessageFn,
   addTicketNoteFn,
@@ -257,6 +270,10 @@ export interface ThreadComposerHandle {
   openMacros: () => void
 }
 
+function toastImageUploadError(error: Error) {
+  toast.error(error.message)
+}
+
 export function AgentConversationThread({
   item,
   targetMessageId,
@@ -310,7 +327,11 @@ export function AgentConversationThread({
   const ticketThreadKey = ticketKeys.thread(ticketId ?? INACTIVE_TICKET_ID)
   // The current agent's display name, for attributing optimistic reactions.
   const { session, settings } = useRouteContext({ from: '__root__' })
+  const { principal } = useRouteContext({ from: '/admin' }) as {
+    principal?: { id?: string }
+  }
   const myName = session?.user?.name ?? 'You'
+  const myPrincipalId = principal?.id
   const flags = settings?.featureFlags as FeatureFlags | undefined
   const showTickets = flags?.supportTickets ?? false
   // B24: the linked-ticket affordances (the header's ticket-status pill, the
@@ -382,7 +403,11 @@ export function AgentConversationThread({
   const sendTyping = useTypingSender(isTicket ? null : conversationId)
   const { onLocalInput } = useConversationTyping(sendTyping)
 
-  const { upload } = useImageUpload({ endpoint: '/api/upload/image', prefix: 'chat-images' })
+  const { upload } = useImageUpload({
+    endpoint: '/api/upload/image',
+    prefix: 'chat-images',
+    onError: toastImageUploadError,
+  })
   const {
     pending: pendingAttachments,
     addFiles,
@@ -391,6 +416,30 @@ export function AgentConversationThread({
     uploading,
   } = useConversationComposerAttachments(upload)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // Same as the visitor messenger: paste/drop stages the tray. The editor has
+  // no onImageUpload, so it never inlines a resizableImage into the draft.
+  const handleComposerPaste = useCallback(
+    (e: ClipboardEvent<HTMLDivElement>) => {
+      const images = Array.from(e.clipboardData?.files ?? []).filter((f) =>
+        f.type.startsWith('image/')
+      )
+      if (images.length === 0) return
+      e.preventDefault()
+      void addFiles(images)
+    },
+    [addFiles]
+  )
+  const handleComposerDrop = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      const images = Array.from(e.dataTransfer?.files ?? []).filter((f) =>
+        f.type.startsWith('image/')
+      )
+      if (images.length === 0) return
+      e.preventDefault()
+      void addFiles(images)
+    },
+    [addFiles]
+  )
 
   // Both kind's thread queries are always called (rules of hooks) but only one
   // is ever `enabled` — the conversation adapter is unchanged from before the
@@ -455,6 +504,11 @@ export function AgentConversationThread({
   const messages: AgentConversationMessageDTO[] = isTicket
     ? (ticketThread?.messages ?? [])
     : (convThread?.messages ?? [])
+  const issuePeople = useMemo(
+    () =>
+      conversation?.channel === 'github' ? githubIssuePeopleFromMessages(messages) : undefined,
+    [conversation?.channel, messages]
+  )
   const hasMoreOlder = isTicket ? (ticketThread?.hasMore ?? false) : (convThread?.hasMore ?? false)
   const isLoading = isTicket ? ticketThreadLoading || ticketDetailLoading : convLoading
 
@@ -858,6 +912,10 @@ export function AgentConversationThread({
       // comment); calling onChanged here too raced it with a redundant
       // broad invalidation.
       appendToThread(res, false)
+      // Belt-and-braces: sending via the Send button momentarily moves focus
+      // there, so hand it back — but only if the user hasn't since moved on
+      // (e.g. clicked a triage control mid-flight); never yank focus back.
+      if (isSendControlFocused()) activeEditorRef.current?.focus('end')
     },
     onError: (error, vars) => {
       // Restore the composer to the exact draft cleared at send time so a failed
@@ -880,6 +938,7 @@ export function AgentConversationThread({
               setReplyDraft(EMPTY_DRAFT)
               setReplyKey((k) => k + 1)
               sendMutation.mutate({ ...vars, skipTranslation: true })
+              requestAnimationFrame(() => activeEditorRef.current?.focus('end'))
             },
           },
         })
@@ -897,6 +956,7 @@ export function AgentConversationThread({
               setReplyDraft(EMPTY_DRAFT)
               setReplyKey((k) => k + 1)
               sendMutation.mutate({ ...vars, skipTranslation: true })
+              requestAnimationFrame(() => activeEditorRef.current?.focus('end'))
             },
           },
         })
@@ -940,6 +1000,8 @@ export function AgentConversationThread({
       setShareNoteWithConversation(false)
       pendingOwnSendScroll.current = true
       appendToThread(res)
+      // See sendMutation.onSuccess — same Send-button focus cover.
+      if (isSendControlFocused()) activeEditorRef.current?.focus('end')
     },
     onError: (_error, vars) => {
       vars.restoreDraft?.()
@@ -963,10 +1025,10 @@ export function AgentConversationThread({
   }, [queryClient, threadKey, onChanged])
 
   // P2-D.1 inbox translation: activation banner/toggle + per-message
-  // translation display, gated on the flag AND the capability. A no-op hook
-  // (everything false/undefined) whenever either is off, so a ticket's
-  // behavior is unaffected.
-  const inboxTranslationEnabled = capabilities.inboxTranslation && (flags?.inboxAi ?? false)
+  // translation display, gated on the inboxTranslation capability. A no-op
+  // hook (everything false/undefined) when the capability is off, so a
+  // ticket's behavior is unaffected.
+  const inboxTranslationEnabled = capabilities.inboxTranslation
   const inboxTranslation = useInboxTranslation({
     enabledFlag: inboxTranslationEnabled,
     conversationId: conversationId ?? INACTIVE_CONVERSATION_ID,
@@ -981,6 +1043,25 @@ export function AgentConversationThread({
     onSuccess: (_r, messageId) => removeActiveMessage(messageId),
     onError: () => toast.error('Failed to delete message'),
   })
+
+  const handleEditMessage = useCallback(
+    async (
+      messageId: ConversationMessageId,
+      draft: { content: string; contentJson: AgentConversationMessageDTO['contentJson'] }
+    ) => {
+      try {
+        const message = await editConversationMessageFn({
+          data: { messageId, content: draft.content, contentJson: draft.contentJson },
+        })
+        patchActiveMessage(message.id, () => message)
+        onChanged()
+      } catch {
+        toast.error('Failed to edit message')
+        throw new Error('Failed to edit message')
+      }
+    },
+    [onChanged, patchActiveMessage]
+  )
 
   // Toggle the caller's emoji reaction on a message (optimistic; the SSE
   // message_updated reconciles counts across agents on the conversation side —
@@ -1063,6 +1144,15 @@ export function AgentConversationThread({
     onSuccess: () => onChanged(),
     onError: () => toast.error('Failed to mark unread'),
   })
+  const retryGithubMutation = useMutation({
+    mutationFn: async (messageId: ConversationMessageId) => {
+      const { retryGitHubAgentMessageFn } = await import('@/integrations/github/server/functions')
+      await retryGitHubAgentMessageFn({ data: { messageId } })
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : 'Could not send to GitHub.')
+    },
+  })
 
   // Stable per-message dispatchers for AgentMessageBubble (perf review): each
   // bubble is `memo`'d, so passing a FRESH closure per message per render
@@ -1094,6 +1184,10 @@ export function AgentConversationThread({
   const handleTrackSuggestion = useCallback((message: AgentConversationMessageDTO) => {
     if (message.postSuggestion) setConvertSeed(message.postSuggestion)
   }, [])
+  const handleRetryChannelDelivery = useCallback(
+    (messageId: ConversationMessageId) => retryGithubMutation.mutate(messageId),
+    [retryGithubMutation.mutate]
+  )
 
   // ── Header action bar (§2.7) ─────────────────────────────────────────────
 
@@ -1194,18 +1288,18 @@ export function AgentConversationThread({
   // ticket resolve sets the workspace's default closed-category status.
   const [closeBlocked, setCloseBlocked] = useState<string[] | null>(null)
   const closeConversationMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (next: 'open' | 'closed') =>
       setConversationStatusFn({
-        data: { conversationId: conversationId ?? INACTIVE_CONVERSATION_ID, status: 'closed' },
+        data: { conversationId: conversationId ?? INACTIVE_CONVERSATION_ID, status: next },
       }),
-    onSuccess: () => {
-      toast.success('Conversation closed')
+    onSuccess: (_data, next) => {
+      toast.success(channelCloseToast(conversation?.channel, next === 'closed'))
       refreshThread()
     },
-    onError: (error) => {
+    onError: (error, next) => {
       const message = error instanceof Error ? error.message : null
       if (message && isMissingRequiredAttributesMessage(message)) setCloseBlocked([message])
-      else toast.error('Failed to close conversation')
+      else toast.error(channelCloseFailureToast(conversation?.channel, next === 'closed'))
     },
   })
   const resolveTicketMutation = useMutation({
@@ -1242,6 +1336,10 @@ export function AgentConversationThread({
       resolveTicketMutation.mutate(closedStatusId)
       return
     }
+    if (isClosedConversation) {
+      closeConversationMutation.mutate('open')
+      return
+    }
     setCloseCheckPending(true)
     queryClient
       .fetchQuery({
@@ -1250,14 +1348,15 @@ export function AgentConversationThread({
       })
       .then((linked) => {
         if (linked && linked.statusCategory !== 'closed') setCloseConfirmTicket(linked)
-        else closeConversationMutation.mutate()
+        else closeConversationMutation.mutate('closed')
       })
       // A failed freshness check must not block the close — fall back to the
       // pre-guard behavior (close unconditionally).
-      .catch(() => closeConversationMutation.mutate())
+      .catch(() => closeConversationMutation.mutate('closed'))
       .finally(() => setCloseCheckPending(false))
   }, [
     isTicket,
+    isClosedConversation,
     ticketStatusList,
     resolveTicketMutation,
     closeConversationMutation,
@@ -1272,7 +1371,7 @@ export function AgentConversationThread({
     linkedTicketStatusMutation.isPending || closeConversationMutation.isPending
   const closeConversationOnly = useCallback(() => {
     setCloseConfirmTicket(null)
-    closeConversationMutation.mutate()
+    closeConversationMutation.mutate('closed')
   }, [closeConversationMutation])
   const resolveTicketAndClose = useCallback(async () => {
     if (!closeConfirmTicket) return
@@ -1291,7 +1390,7 @@ export function AgentConversationThread({
       return
     }
     setCloseConfirmTicket(null)
-    closeConversationMutation.mutate()
+    closeConversationMutation.mutate('closed')
   }, [closeConfirmTicket, ticketStatusList, linkedTicketStatusMutation, closeConversationMutation])
 
   // Seed an insert into a mode's draft, then remount that editor so the new
@@ -1345,6 +1444,14 @@ export function AgentConversationThread({
   // Reply and note render the SAME editor slot, one at a time, so they share
   // one handle ref: whichever is mounted owns it.
   const activeEditorRef = useRef<RichTextEditorHandle | null>(null)
+  // True while focus sits on the composer or the send/note-mode buttons
+  // around it — i.e. the user hasn't moved on to another control mid-flight,
+  // so an async send completion may safely hand focus back to the editor.
+  const isSendControlFocused = () => {
+    const el = document.activeElement as HTMLElement | null
+    if (!el || el === document.body) return true
+    return Boolean(el.closest('[data-inbox-composer]'))
+  }
   const focusComposerMode = useComposerFocus({
     noteMode,
     setNoteMode,
@@ -1435,13 +1542,54 @@ export function AgentConversationThread({
     // (remounting the editor via a key bump) — a failed send never loses it.
     const snapshot = draft
     const restoreDraft = () => {
-      if (useNote) {
-        setNoteDraft(snapshot)
-        setNoteKey((k) => k + 1)
-      } else {
-        setReplyDraft(snapshot)
-        setReplyKey((k) => k + 1)
+      // The composer stays editable mid-flight, so the user may have typed
+      // something new since the send. Never clobber that — instead move the
+      // failed text below it with a separator, so both survive. The merge is
+      // JSON-first: the remount reads value.json, so a markdown-only merge
+      // would render invisible and be dropped on the next edit.
+      const current = (useNote ? noteDraftRef : replyDraftRef).current
+      const failedMarkdown = snapshot.markdown
+      if (isEmptyTiptapDoc(current.json ?? undefined)) {
+        if (useNote) {
+          setNoteDraft(snapshot)
+          setNoteKey((k) => k + 1)
+        } else {
+          setReplyDraft(snapshot)
+          setReplyKey((k) => k + 1)
+        }
+      } else if (failedMarkdown.trim() && snapshot.json) {
+        // JSON-first merge: the remount reads value.json, so a markdown-only
+        // merge would render invisible and be dropped on the next edit. Take
+        // the snapshot's own nodes verbatim — full fidelity (marks, mentions,
+        // embeds) with no parsing involved and no server import here.
+        const failedContent = (snapshot.json as unknown as { content?: unknown[] }).content ?? []
+        const mergedJson = {
+          ...(current.json as unknown as Record<string, unknown>),
+          content: [
+            ...((current.json as unknown as { content?: unknown[] }).content ?? []),
+            {
+              type: 'paragraph',
+              content: [{ type: 'text', text: '— failed to send, kept below —' }],
+            },
+            ...failedContent,
+          ],
+        } as TiptapContent
+        const merged: ComposerDraft = {
+          json: mergedJson,
+          markdown: `${current.markdown.replace(/\s+$/, '')}\n\n--- failed to send, kept below ---\n\n${failedMarkdown}`,
+        }
+        if (useNote) {
+          setNoteDraft(merged)
+          setNoteKey((k) => k + 1)
+        } else {
+          setReplyDraft(merged)
+          setReplyKey((k) => k + 1)
+        }
+        toast.error('Failed to send message — kept below your new typing')
       }
+      // The restore remounts the editor (destroying the focused node), so hand
+      // focus back once the new instance commits.
+      requestAnimationFrame(() => activeEditorRef.current?.focus('end'))
     }
     mutation.mutate({
       content: draft.markdown.trim(),
@@ -1449,13 +1597,16 @@ export function AgentConversationThread({
       attachments: hasAttachments ? pendingAttachments : undefined,
       restoreDraft,
     })
+    // Clear in place (no key bump): remounting would destroy the focused node
+    // and drop focus to <body>. The view clears imperatively, the state mirrors
+    // it, and focus never leaves the editing surface.
+    activeEditorRef.current?.clear()
     if (useNote) {
       setNoteDraft(EMPTY_DRAFT)
-      setNoteKey((k) => k + 1)
     } else {
       setReplyDraft(EMPTY_DRAFT)
-      setReplyKey((k) => k + 1)
     }
+    activeEditorRef.current?.focus('end')
   }
   const onSend = useCallback(() => sendRef.current(), [])
 
@@ -1494,9 +1645,13 @@ export function AgentConversationThread({
             highlighted={m.id === highlightId}
             onOpenPost={onOpenPost}
             onDelete={deleteMutation.mutate}
+            canEdit={canEditAgentMessage(m, myPrincipalId, permissions)}
+            canDelete={canDeleteAgentMessage(m, myPrincipalId, permissions)}
+            onEdit={handleEditMessage}
             onToggleReaction={handleToggleReaction}
             onToggleFlag={handleToggleFlag}
             onMarkUnread={markUnreadMutation.mutate}
+            onRetryChannelDelivery={handleRetryChannelDelivery}
             onSharePost={capabilities.convertToPost ? handleSharePost : undefined}
             onTrackAsPost={capabilities.convertToPost ? handleTrackAsPost : undefined}
             onTrackSuggestion={capabilities.convertToPost ? handleTrackSuggestion : undefined}
@@ -1663,10 +1818,10 @@ export function AgentConversationThread({
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => snooze(null)}>Until they reply</DropdownMenuItem>
             <DropdownMenuItem
-              onSelect={() => {
+              onClick={() => {
                 setSnoozeCustomDate(tomorrowAt(9))
                 // Let the menu finish closing before the dialog grabs focus,
-                // so the two Radix overlays don't fight over it.
+                // so the menu teardown and the dialog focus grab don't fight over it.
                 requestAnimationFrame(() => setSnoozeCustomOpen(true))
               }}
             >
@@ -1726,15 +1881,18 @@ export function AgentConversationThread({
               Add customer…
             </DropdownMenuItem>
           )}
-          {!isTicket && conversation && !isClosedConversation && (
-            <DropdownMenuItem onClick={() => setEndDialogOpen(true)}>
-              <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" />
-              End conversation
-            </DropdownMenuItem>
-          )}
+          {!isTicket &&
+            conversation &&
+            !isClosedConversation &&
+            channelShowsEndConversation(conversation.channel) && (
+              <DropdownMenuItem onClick={() => setEndDialogOpen(true)}>
+                <ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" />
+                End conversation
+              </DropdownMenuItem>
+            )}
           {conversation && capabilities.convertToPost && (
             <DropdownMenuItem
-              onSelect={() =>
+              onClick={() =>
                 setConvertSeed({ title: convertDefaultTitle, content: convertDefaultContent })
               }
             >
@@ -1762,7 +1920,9 @@ export function AgentConversationThread({
       </DropdownMenu>
       <Button type="button" size="sm" onClick={runPrimaryAction} disabled={primaryActionPending}>
         <CheckIcon className="h-4 w-4" />
-        {isTicket ? 'Resolve' : 'Close'}
+        {isTicket
+          ? 'Resolve'
+          : channelCloseActionLabel(conversation?.channel, isClosedConversation)}
       </Button>
     </div>
   )
@@ -1951,11 +2111,13 @@ export function AgentConversationThread({
             // modes and every control that can hold focus alongside them.
             data-inbox-composer=""
             className={cn(
-              'rounded-lg border px-3 py-2 focus-within:ring-2',
+              'rounded-lg border px-3 py-2 transition-colors',
               noteMode || !capabilities.reply
-                ? 'border-amber-400/50 bg-amber-400/5 focus-within:ring-amber-400/20'
-                : 'border-border bg-background focus-within:ring-primary/20'
+                ? 'border-amber-400/50 bg-amber-400/5 focus-within:border-amber-400'
+                : 'border-border bg-background focus-within:border-primary/60'
             )}
+            onPaste={handleComposerPaste}
+            onDrop={handleComposerDrop}
           >
             {/* Reply vs internal-note mode — a back_office/tracker ticket has
                 no reply capability, so Note is the only mode: hide the
@@ -2007,8 +2169,9 @@ export function AgentConversationThread({
             {/* Reply and Note share the unified RichTextEditor; reply keeps
                 @-mentions on (agent surface), note is the team-internal preset.
                 Enter sends, Shift+Enter breaks; formatting comes from the editor's
-                own bubble/slash/`:` surfaces. Pasted/dropped images inline via
-                onImageUpload; the paperclip still stages files in the tray below. */}
+                own bubble/slash/`:` surfaces. Images stay tray-only (paste/drop
+                and the paperclip stage files below) — the editor has no
+                onImageUpload, so it never inlines a resizableImage. */}
             {noteMode || !capabilities.reply ? (
               <RichTextEditor
                 key={`note-${noteKey}`}
@@ -2018,12 +2181,10 @@ export function AgentConversationThread({
                 borderless
                 minHeight="4.5rem"
                 autofocus={noteKey > 0 ? 'end' : false}
-                disabled={noteMutation.isPending}
                 placeholder="Add an internal note for your team…"
                 className="max-h-64 overflow-y-auto"
                 onChange={onNoteChange}
                 onSubmit={onSend}
-                onImageUpload={upload}
               />
             ) : (
               <RichTextEditor
@@ -2034,12 +2195,13 @@ export function AgentConversationThread({
                 borderless
                 minHeight="4.5rem"
                 autofocus={replyKey > 0 ? 'end' : false}
-                disabled={sendMutation.isPending}
-                placeholder={isTicket ? 'Reply to the requester…' : 'Type your reply…'}
+                placeholder={channelReplyPlaceholder(conversation?.channel, {
+                  closed: isClosedConversation,
+                  isTicket,
+                })}
                 className="max-h-64 overflow-y-auto"
                 onChange={onReplyChange}
                 onSubmit={onSend}
-                onImageUpload={upload}
               />
             )}
             <ComposerAttachmentTray attachments={pendingAttachments} onRemove={removeAttachment} />
@@ -2203,8 +2365,9 @@ export function AgentConversationThread({
                   is still open
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  Closing the conversation leaves the ticket open — and with its own inbox row
-                  folded into the conversation, it can go stale unnoticed.
+                  {isNativeIssueChannel(conversation?.channel)
+                    ? 'Closing the issue leaves the ticket open — and with its own inbox row folded into the conversation, it can go stale unnoticed.'
+                    : 'Closing the conversation leaves the ticket open — and with its own inbox row folded into the conversation, it can go stale unnoticed.'}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -2222,7 +2385,9 @@ export function AgentConversationThread({
                   disabled={closeConfirmPending}
                   onClick={closeConversationOnly}
                 >
-                  Close conversation only
+                  {isNativeIssueChannel(conversation?.channel)
+                    ? 'Close issue only'
+                    : 'Close conversation only'}
                 </Button>
                 {/* Resolving the linked ticket requires `ticket.set_status`
                     (B24) — without it the mutation can only 403, so the
@@ -2292,6 +2457,7 @@ export function AgentConversationThread({
           onCreateTicket={handleCreateTicketFromPanel}
           onInsertFromCopilot={insertFromCopilot}
           openCopilotToken={openCopilotToken}
+          issuePeople={issuePeople}
         />
       )}
     </div>

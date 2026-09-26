@@ -17,6 +17,34 @@ function responseCookies(response: Response): string[] {
   return single ? [single] : []
 }
 
+/**
+ * Internal verify Request for a browser GET that arrived from another origin.
+ *
+ * Visit workspace is a control-plane POST that 302s here. The GET keeps
+ * `Referer: https://app.quackback.io/…` and often a Cookie (CDN, prior
+ * visit). Better Auth CSRF treats Referer as Origin when Origin is
+ * absent, and refuses anything not on the workspace allowlist — so a
+ * freshly minted OTT looks expired. Verify as this workspace instead.
+ */
+export function ottVerifyRequest(ott: string, headers?: Headers): Request {
+  const requestHeaders = new Headers(headers)
+  requestHeaders.delete('content-length')
+  requestHeaders.delete('referer')
+  requestHeaders.delete('origin')
+  requestHeaders.set('content-type', 'application/json')
+
+  const host = headers?.get('host')?.trim()
+  const proto = (headers?.get('x-forwarded-proto') ?? 'https').split(',')[0]?.trim() || 'https'
+  const origin = host ? `${proto}://${host}` : 'http://auth.local'
+  requestHeaders.set('origin', origin)
+
+  return new Request(`${origin}/api/auth/one-time-token/verify`, {
+    method: 'POST',
+    headers: requestHeaders,
+    body: JSON.stringify({ token: ott }),
+  })
+}
+
 async function verifyOttCookies(
   ott: string,
   returnTo: string,
@@ -24,16 +52,7 @@ async function verifyOttCookies(
 ): Promise<OriginTransferResult> {
   try {
     const { auth } = await import('@/lib/server/auth')
-    const requestHeaders = new Headers(headers)
-    requestHeaders.delete('content-length')
-    requestHeaders.set('content-type', 'application/json')
-    const response = await auth.handler(
-      new Request('http://auth.local/api/auth/one-time-token/verify', {
-        method: 'POST',
-        headers: requestHeaders,
-        body: JSON.stringify({ token: ott }),
-      })
-    )
+    const response = await auth.handler(ottVerifyRequest(ott, headers))
     if (!response.ok) return { kind: 'error', status: 'invalid' }
     const cookies = responseCookies(response)
     if (cookies.length === 0) return { kind: 'error', status: 'error' }
@@ -113,11 +132,47 @@ async function restoreOpenHandoffOtt(snapshot: OpenHandoffOttSnapshot): Promise<
   }
 }
 
+/** Backoff while a parallel Open GET restores the OTT row it just consumed. */
+const OPEN_HANDOFF_SNAPSHOT_RETRY_MS = [25, 50, 100] as const
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+type OpenHandoffAttempt =
+  | Extract<OriginTransferResult, { kind: 'redirect' }>
+  | (Extract<OriginTransferResult, { kind: 'error' }> & { missedSnapshot: boolean })
+
+async function consumeOpenHandoffOnce(ott: string, headers?: Headers): Promise<OpenHandoffAttempt> {
+  const snapshot = await snapshotOpenHandoffOtt(ott)
+  if (!snapshot) {
+    const existing = await continueIfAlreadySignedIn('/', headers)
+    if (existing.kind === 'redirect') return existing
+    return { kind: 'error', status: 'invalid', missedSnapshot: true }
+  }
+  const first = await consumeOrContinueExistingSession(ott, '/', headers)
+  if (first.kind === 'redirect') {
+    await restoreOpenHandoffOtt(snapshot)
+    return first
+  }
+  await restoreOpenHandoffOtt(snapshot)
+  const retry = await verifyOttCookies(ott, '/', headers)
+  if (retry.kind === 'redirect') {
+    await restoreOpenHandoffOtt(snapshot)
+    return retry
+  }
+  return { ...first, missedSnapshot: false }
+}
+
 /**
  * Consume the control-plane Open handoff. First arrival uses the immutable
  * system host and may happen before the identity projection lands, so this
  * path must not require a verified projection. The token stays redeemable
  * until it expires: Visit is a GET, and a second load must still sign in.
+ *
+ * Two GETs can overlap: the second snapshot can run after the first verify
+ * deleted the row and before the first restore put it back. When the snapshot
+ * misses, wait briefly and try again so the sibling restore can land.
  */
 export async function consumeOpenHandoff(input: {
   ott?: string
@@ -129,21 +184,17 @@ export async function consumeOpenHandoff(input: {
   // caller returnTo — Open must not drop a finished workspace into the
   // wizard or /admin.
   if (!input.ott) return { kind: 'error', status: 'invalid' }
-  const snapshot = await snapshotOpenHandoffOtt(input.ott)
-  const first = await consumeOrContinueExistingSession(input.ott, '/', input.headers)
-  if (first.kind === 'redirect') {
-    if (snapshot) await restoreOpenHandoffOtt(snapshot)
-    return first
+  const first = await consumeOpenHandoffOnce(input.ott, input.headers)
+  if (first.kind === 'redirect') return first
+  if (!first.missedSnapshot) return { kind: 'error', status: first.status }
+
+  for (const delayMs of OPEN_HANDOFF_SNAPSHOT_RETRY_MS) {
+    await wait(delayMs)
+    const retry = await consumeOpenHandoffOnce(input.ott, input.headers)
+    if (retry.kind === 'redirect') return retry
+    if (!retry.missedSnapshot) return { kind: 'error', status: retry.status }
   }
-  if (snapshot) {
-    await restoreOpenHandoffOtt(snapshot)
-    const retry = await verifyOttCookies(input.ott, '/', input.headers)
-    if (retry.kind === 'redirect') {
-      await restoreOpenHandoffOtt(snapshot)
-      return retry
-    }
-  }
-  return first
+  return { kind: 'error', status: first.status }
 }
 
 /**

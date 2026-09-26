@@ -1,21 +1,28 @@
 import { useState, useTransition } from 'react'
 import { PERMISSIONS } from '@/lib/shared/permissions'
 import { assertRoutePermission } from '@/lib/shared/route-permission'
-import { createFileRoute, useRouter, Navigate, Link } from '@tanstack/react-router'
+import { createFileRoute, useRouter, Link, redirect } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { ChatBubbleLeftRightIcon, ArrowPathIcon } from '@heroicons/react/24/solid'
-import type { FeatureFlags } from '@/lib/shared/types/settings'
+import { ChatBubbleLeftRightIcon } from '@heroicons/react/24/solid'
 import { settingsQueries } from '@/lib/client/queries/settings'
 import { useUpdatePortalConfig, useUpdateWidgetConfig } from '@/lib/client/mutations/settings'
-import { BackLink } from '@/components/ui/back-link'
+import { ChannelSettingsCrumb } from '@/components/admin/settings/channel-settings-crumb'
 import { PageHeader } from '@/components/shared/page-header'
 import { SettingsCard } from '@/components/admin/settings/settings-card'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/shared/utils'
+import { SUPPORTED_LOCALES } from '@/lib/shared/i18n'
+import { WIDGET_LOCALE_LABELS, type WidgetTranslations } from '@/lib/shared/widget/translations'
 
 export const Route = createFileRoute('/admin/settings/channels_/messenger')({
+  beforeLoad: ({ context }) => {
+    if (!context.settings?.featureFlags?.supportInbox) {
+      throw redirect({ to: '/admin/settings/general' })
+    }
+  },
   loader: async ({ context }) => {
     assertRoutePermission(context.permissions, PERMISSIONS.SETTINGS_MANAGE)
     await Promise.all([
@@ -24,17 +31,10 @@ export const Route = createFileRoute('/admin/settings/channels_/messenger')({
     ])
     return {}
   },
-  component: MessengerChannelRoute,
+  component: MessengerChannelPage,
 })
 
-function MessengerChannelRoute() {
-  const { settings } = Route.useRouteContext()
-  const flags = settings?.featureFlags as FeatureFlags | undefined
-  if (!flags?.supportInbox) return <Navigate to="/admin/settings" />
-  return <MessengerChannelPage />
-}
-
-function MessengerChannelPage() {
+export function MessengerChannelPage() {
   const router = useRouter()
   const updateWidgetConfig = useUpdateWidgetConfig()
   const updatePortalConfig = useUpdatePortalConfig()
@@ -44,16 +44,18 @@ function MessengerChannelPage() {
   const messengerConfig = config.messenger
   const [isPending, startTransition] = useTransition()
   const [savingField, setSavingField] = useState<string | null>(null)
+  const [widgetMessenger, setWidgetMessenger] = useState(config.tabs?.messenger ?? true)
   const [portalSupportEnabled, setPortalSupportEnabled] = useState(
-    portalConfigQuery.data?.support?.enabled ?? false
+    portalConfigQuery.data?.support?.enabled ?? true
   )
-  const [enabled, setEnabled] = useState(messengerConfig?.enabled ?? false)
   const [preventRepliesWhenClosed, setPreventRepliesWhenClosed] = useState(
     messengerConfig?.preventRepliesWhenClosed ?? false
   )
   const [welcomeMessage, setWelcomeMessage] = useState(messengerConfig?.welcomeMessage ?? '')
   const [offlineMessage, setOfflineMessage] = useState(messengerConfig?.offlineMessage ?? '')
   const [teamName, setTeamName] = useState(messengerConfig?.teamName ?? '')
+  const [translations, setTranslations] = useState<WidgetTranslations>(config.translations ?? {})
+  const [translationLocale, setTranslationLocale] = useState<string>('en')
 
   async function persist(
     field: string,
@@ -75,68 +77,45 @@ function MessengerChannelPage() {
 
   return (
     <div className="space-y-6 max-w-3xl">
-      <div className="lg:hidden">
-        <BackLink to="/admin/settings/channels">Channels</BackLink>
+      <div className="space-y-1.5">
+        <ChannelSettingsCrumb page="Messenger" />
+        <PageHeader
+          icon={ChatBubbleLeftRightIcon}
+          title="Messenger"
+          description="Live chat in the widget and on the portal."
+        />
       </div>
-      <PageHeader
-        icon={ChatBubbleLeftRightIcon}
-        title="Messenger"
-        description="Live chat in the widget and on the portal."
-      />
 
-      <SettingsCard
-        title="Enable Messenger"
-        description="Accept new conversations and show the Messages tab."
-      >
+      <SettingsCard title="Surfaces" description="Where customers can start conversations.">
         <div className="flex items-center justify-between py-1">
           <div className="pr-4">
-            <Label htmlFor="messenger-enabled" className="text-sm font-medium cursor-pointer">
-              Enable Messenger
+            <Label htmlFor="widget-messenger-tab" className="text-sm font-medium cursor-pointer">
+              Widget
             </Label>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Adds the Messages tab to the widget. Turning it off also hides the tab.
+              Show the Messages tab in the widget.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            {savingField === 'enabled' && (
-              <ArrowPathIcon className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-            )}
-            <Switch
-              id="messenger-enabled"
-              checked={enabled}
-              onCheckedChange={(checked) => {
-                setEnabled(checked)
-                persist(
-                  'enabled',
-                  { messenger: { enabled: checked }, tabs: { messenger: checked } },
-                  () => setEnabled(!checked)
-                )
-              }}
-              disabled={isBusy}
-            />
-          </div>
-        </div>
-      </SettingsCard>
-
-      <SettingsCard title="Surfaces" description="Where customers see their conversations.">
-        <div className="flex items-center justify-between py-1">
-          <div className="pr-4">
-            <p className="text-sm font-medium">Widget</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Launcher, tabs, and appearance are in Widget settings.
-            </p>
-          </div>
-          <Link to="/admin/settings/widget" className="text-sm font-medium text-primary">
-            Widget settings
-          </Link>
+          <Switch
+            id="widget-messenger-tab"
+            checked={widgetMessenger}
+            onCheckedChange={(checked) => {
+              setWidgetMessenger(checked)
+              persist('widgetMessenger', { tabs: { messenger: checked } }, () =>
+                setWidgetMessenger(!checked)
+              )
+            }}
+            disabled={isBusy}
+            aria-label="Widget"
+          />
         </div>
         <div className="mt-4 flex items-center justify-between border-t border-border/40 py-1 pt-4">
           <div className="pr-4">
             <Label htmlFor="portal-support-enabled" className="text-sm font-medium cursor-pointer">
-              Portal Support
+              Portal chats
             </Label>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Show a Support tab on the public portal for signed-in users.
+              Let signed-in customers start new conversations from the portal&apos;s Support tab.
             </p>
           </div>
           <Switch
@@ -155,6 +134,7 @@ function MessengerChannelPage() {
               }
             }}
             disabled={isBusy}
+            aria-label="Portal chats"
           />
         </div>
       </SettingsCard>
@@ -170,7 +150,7 @@ function MessengerChannelPage() {
               placeholder="Support"
               onChange={(e) => setTeamName(e.target.value)}
               onBlur={() => persist('teamName', { messenger: { teamName: teamName.trim() } })}
-              disabled={isBusy || !enabled}
+              disabled={isBusy}
             />
             <p className="text-xs text-muted-foreground">
               Shown in the messenger header. Falls back to the workspace name.
@@ -188,7 +168,7 @@ function MessengerChannelPage() {
               onBlur={() =>
                 persist('welcomeMessage', { messenger: { welcomeMessage: welcomeMessage.trim() } })
               }
-              disabled={isBusy || !enabled}
+              disabled={isBusy}
             />
             <p className="text-xs text-muted-foreground">
               Greets a customer opening a new conversation.{' '}
@@ -208,7 +188,7 @@ function MessengerChannelPage() {
               onBlur={() =>
                 persist('offlineMessage', { messenger: { offlineMessage: offlineMessage.trim() } })
               }
-              disabled={isBusy || !enabled}
+              disabled={isBusy}
             />
             <p className="text-xs text-muted-foreground">
               Shown outside{' '}
@@ -218,6 +198,17 @@ function MessengerChannelPage() {
               or when nobody is online.
             </p>
           </div>
+          <MessengerTranslations
+            translations={translations}
+            selectedLocale={translationLocale}
+            onSelectLocale={setTranslationLocale}
+            disabled={isBusy}
+            onCommit={(next) => {
+              const prev = translations
+              setTranslations(next)
+              persist('translations', { translations: next }, () => setTranslations(prev))
+            }}
+          />
         </div>
       </SettingsCard>
 
@@ -243,7 +234,7 @@ function MessengerChannelPage() {
                 setPreventRepliesWhenClosed(!checked)
               )
             }}
-            disabled={isBusy || !enabled}
+            disabled={isBusy}
           />
         </div>
       </SettingsCard>
@@ -262,6 +253,91 @@ function MessengerChannelPage() {
           </Link>
         </div>
       </SettingsCard>
+    </div>
+  )
+}
+
+function MessengerTranslations({
+  translations,
+  selectedLocale,
+  onSelectLocale,
+  disabled,
+  onCommit,
+}: {
+  translations: WidgetTranslations
+  selectedLocale: string
+  onSelectLocale: (locale: string) => void
+  disabled: boolean
+  onCommit: (next: WidgetTranslations) => void
+}) {
+  const isDefault = selectedLocale === 'en'
+  const entry = translations[selectedLocale] ?? {}
+
+  function commitField(key: 'welcomeMessage' | 'offlineMessage', raw: string) {
+    const value = raw.trim()
+    if (value === (entry[key] ?? '')) return
+    const nextEntry = { ...entry, [key]: value || undefined }
+    const next = { ...translations, [selectedLocale]: nextEntry }
+    if (!nextEntry.welcomeMessage && !nextEntry.offlineMessage) {
+      const { [selectedLocale]: _removed, ...rest } = next
+      onCommit(rest)
+      return
+    }
+    onCommit(next)
+  }
+
+  return (
+    <div className="border-t border-border/40 pt-4 space-y-3">
+      <span className="text-sm font-medium">Translations</span>
+      <div className="flex flex-wrap gap-1.5">
+        {SUPPORTED_LOCALES.map((locale) => (
+          <button
+            key={locale}
+            type="button"
+            onClick={() => onSelectLocale(locale)}
+            disabled={disabled}
+            className={cn(
+              'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium',
+              selectedLocale === locale
+                ? 'border-primary/40 bg-primary/5 text-foreground'
+                : 'border-border/50 text-muted-foreground hover:text-foreground'
+            )}
+          >
+            {WIDGET_LOCALE_LABELS[locale] ?? locale}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">Welcome and offline messages per locale.</p>
+      {!isDefault && (
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="messenger-welcome-locale">Welcome message</Label>
+            <Textarea
+              id="messenger-welcome-locale"
+              defaultValue={entry.welcomeMessage ?? ''}
+              key={`${selectedLocale}-welcome`}
+              maxLength={500}
+              rows={2}
+              placeholder="Hi! How can we help you today?"
+              disabled={disabled}
+              onBlur={(e) => commitField('welcomeMessage', e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="messenger-offline-locale">Offline message</Label>
+            <Textarea
+              id="messenger-offline-locale"
+              defaultValue={entry.offlineMessage ?? ''}
+              key={`${selectedLocale}-offline`}
+              maxLength={500}
+              rows={2}
+              placeholder="We're away right now. Leave a message and we'll get back to you by email."
+              disabled={disabled}
+              onBlur={(e) => commitField('offlineMessage', e.target.value)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

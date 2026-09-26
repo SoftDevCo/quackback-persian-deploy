@@ -10,6 +10,7 @@ import { ValidationError } from '@/lib/shared/errors'
 import { isTrustedAttachmentUrl } from '@/lib/server/storage/trusted-url'
 import { truncate } from '@/lib/shared/utils/string'
 import type { TiptapContent } from '@/lib/shared/db-types'
+import { contentJsonForClient } from '@/lib/server/content/storage-read-urls'
 import { tiptapJsonToText, hasTextLeaf } from '@/lib/server/markdown-tiptap'
 import type { PrincipalId } from '@quackback/ids'
 import {
@@ -19,6 +20,7 @@ import {
   type ConversationMessageDTO,
   type MessageSenderType,
 } from '@/lib/shared/conversation/types'
+import { liftInlineImagesToAttachments } from '@/lib/shared/conversation/lift-inline-images'
 
 export const PREVIEW_LENGTH = 120
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
@@ -124,6 +126,10 @@ export function toMessageDTO(
   author: ConversationAuthorDTO | null,
   assistantPrincipalId?: PrincipalId | null
 ): ConversationMessageDTO {
+  const { contentJson, attachments } = liftInlineImagesToAttachments(
+    contentJsonForClient(message.contentJson ?? null),
+    message.attachments ?? []
+  )
   return {
     id: message.id,
     conversationId: message.conversationId,
@@ -131,15 +137,26 @@ export function toMessageDTO(
     senderType: message.senderType as MessageSenderType,
     content: message.content,
     createdAt: message.createdAt.toISOString(),
+    editedAt: message.editedAt ? message.editedAt.toISOString() : null,
     author,
-    attachments: message.attachments ?? [],
+    attachments,
     citations: message.citations ?? [],
     isAssistant: assistantPrincipalId != null && message.principalId === assistantPrincipalId,
     isInternal: message.isInternal,
-    contentJson: message.contentJson ?? null,
+    contentJson,
     viaEmail: message.metadata?.source === 'email',
     systemEvent: message.metadata?.systemEvent ?? null,
     block: message.metadata?.block ?? null,
     blockReply: message.metadata?.blockReply ?? null,
+    channelDelivery:
+      message.metadata?.channelDelivery ??
+      (message.senderType === 'agent' && message.metadata?.githubCommentId
+        ? {
+            status: 'sent' as const,
+            channel: 'github' as const,
+            at: message.createdAt.toISOString(),
+            externalId: message.metadata.githubCommentId,
+          }
+        : null),
   }
 }

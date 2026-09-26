@@ -3,19 +3,13 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { useIntl, FormattedMessage } from 'react-intl'
 import { useKeyboardSubmit } from '@/lib/client/hooks/use-keyboard-submit'
 import { useRouter, useRouteContext } from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { motion, AnimatePresence } from 'framer-motion'
 import { PencilIcon } from '@heroicons/react/24/solid'
 import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { RichTextEditor } from '@/components/ui/rich-text-editor'
-import { usePortalImageUpload } from '@/lib/client/hooks/use-image-upload'
+import { usePortalMediaUpload } from '@/lib/client/hooks/use-image-upload'
 import { useCreatePublicPost } from '@/lib/client/mutations/portal-posts'
 import { useAuthPopover } from '@/components/auth/auth-popover-context'
 import { useAuthBroadcast } from '@/lib/client/hooks/use-auth-broadcast'
@@ -23,10 +17,13 @@ import { useSimilarPosts } from '@/lib/client/hooks/use-similar-posts'
 import { useEnsureAnonSession } from '@/lib/client/hooks/use-ensure-anon-session'
 import { SimilarPostsCard } from '@/components/public/similar-posts-card'
 import { BoardCustomFields } from '@/components/public/feedback/board-custom-fields'
+import { PostingToBoard } from '@/components/public/feedback/posting-to-board'
 import { validatePostCustomFieldValues } from '@/lib/shared/post-custom-fields'
 import type { BoardSettings } from '@/lib/shared/db-types'
 import { signOut } from '@/lib/client/auth-client'
+import { removeViewerScopedPortalQueries } from '@/lib/client/queries/portal'
 import { resolveSubmitState } from '@/components/public/feedback/submit-permission'
+import { PUBLIC_FEEDBACK_EDITOR_FEATURES } from '@/components/public/feedback/feedback-editor-features'
 import type { JSONContent } from '@tiptap/react'
 
 interface BoardOption {
@@ -49,6 +46,11 @@ export interface FeedbackHeaderProps {
    */
   boardPermissions?: Record<string, { canSubmit: boolean; canVote: boolean }>
   onPostCreated?: (postId: string, boardSlug: string) => void
+  /**
+   * When true, posts go to this page's board and the form does not offer a
+   * board switcher.
+   */
+  boardLocked?: boolean
 }
 
 export function FeedbackHeaderAnimated({
@@ -57,9 +59,11 @@ export function FeedbackHeaderAnimated({
   user,
   boardPermissions,
   onPostCreated,
+  boardLocked = false,
 }: FeedbackHeaderProps) {
   const intl = useIntl()
   const router = useRouter()
+  const queryClient = useQueryClient()
   const { session } = useRouteContext({ from: '__root__' })
   const [expanded, setExpanded] = useState(false)
   const [error, setError] = useState('')
@@ -75,9 +79,14 @@ export function FeedbackHeaderAnimated({
     session?.user && !isAnonymousSession
       ? { name: session.user.name, email: session.user.email }
       : user
-  const canUploadImages = !isAnonymousSession && !!session?.user && richMediaEnabled
-
-  const { upload: uploadImage } = usePortalImageUpload()
+  const { upload: uploadMedia } = usePortalMediaUpload()
+  const uploadMediaWithSession = useCallback(
+    async (file: File) => {
+      if (!(await ensureAnonSession())) throw new Error('Could not create upload session')
+      return uploadMedia(file)
+    },
+    [ensureAnonSession, uploadMedia]
+  )
 
   // Listen for auth success to refetch session (no page reload)
   useAuthBroadcast({
@@ -103,6 +112,7 @@ export function FeedbackHeaderAnimated({
   // on a board whose tier requires sign-in (Codex #191).
   const boardCanSubmit = boardPermissions?.[selectedBoardId]?.canSubmit ?? false
   const { canSubmit, canPostAnonymously, noAccess } = resolveSubmitState(boardCanSubmit, session)
+  const canUploadMedia = richMediaEnabled && (!!session?.user || canPostAnonymously)
 
   const [title, setTitle] = useState('')
   const [contentJson, setContentJson] = useState<JSONContent | null>(null)
@@ -267,7 +277,7 @@ export function FeedbackHeaderAnimated({
       transition={{ duration: 0.2 }}
       onKeyDown={handleKeyDown}
     >
-      {/* Board selector - above title when expanded */}
+      {/* Destination board, above title when expanded */}
       <AnimatePresence>
         {expanded && boards.length > 0 && (
           <motion.div
@@ -277,42 +287,17 @@ export function FeedbackHeaderAnimated({
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="flex items-center px-4 sm:px-5 pt-3 pb-1">
-              <span className="text-xs text-muted-foreground me-1">
-                <FormattedMessage
-                  id="portal.feedback.header.postingTo"
-                  defaultMessage="Posting to"
-                />
-              </span>
-              <Select
-                value={selectedBoardId}
-                onValueChange={(id) => {
-                  setSelectedBoardId(id)
-                  // Answers are per-board: switching boards drops the previous
-                  // board's field values rather than smuggling them across.
-                  setCustomFieldValues({})
-                }}
-              >
-                <SelectTrigger
-                  size="xs"
-                  className="border-0 bg-transparent shadow-none font-medium text-foreground hover:text-foreground/80 focus-visible:ring-0"
-                >
-                  <SelectValue
-                    placeholder={intl.formatMessage({
-                      id: 'portal.feedback.header.selectBoard',
-                      defaultMessage: 'Select a board',
-                    })}
-                  />
-                </SelectTrigger>
-                <SelectContent align="start">
-                  {boards.map((board) => (
-                    <SelectItem key={board.id} value={board.id} className="py-1">
-                      {board.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <PostingToBoard
+              boards={boards}
+              selectedBoardId={selectedBoardId}
+              locked={boardLocked}
+              onSelect={(id) => {
+                setSelectedBoardId(id)
+                // Answers are per-board: switching boards drops the previous
+                // board's field values rather than smuggling them across.
+                setCustomFieldValues({})
+              }}
+            />
           </motion.div>
         )}
       </AnimatePresence>
@@ -405,8 +390,13 @@ export function FeedbackHeaderAnimated({
                 minHeight="150px"
                 borderless
                 toolbarPosition="bottom"
-                features={{ images: canUploadImages, quackbackEmbeds: true }}
-                onImageUpload={canUploadImages ? uploadImage : undefined}
+                features={{
+                  ...PUBLIC_FEEDBACK_EDITOR_FEATURES,
+                  images: canUploadMedia,
+                  videos: canUploadMedia,
+                }}
+                onImageUpload={canUploadMedia ? uploadMediaWithSession : undefined}
+                onVideoUpload={canUploadMedia ? uploadMediaWithSession : undefined}
               />
             </motion.div>
 
@@ -464,6 +454,7 @@ export function FeedbackHeaderAnimated({
                     className="text-primary hover:underline"
                     onClick={async () => {
                       await signOut()
+                      removeViewerScopedPortalQueries(queryClient)
                       router.invalidate()
                     }}
                   >

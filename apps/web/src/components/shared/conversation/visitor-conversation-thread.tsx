@@ -19,6 +19,7 @@ import {
 } from './block-affordance'
 import { BlockTicketForm } from './block-ticket-form'
 import { ConversationPresenceBadge } from './conversation-presence-badge'
+import { ConversationThreadSkeleton } from './conversation-thread-skeleton'
 import { SystemEventNotice } from './system-event-notice'
 import { conversationAvailable } from '@/lib/shared/conversation/presence'
 import { ArrowUpIcon, ChevronDownIcon } from '@heroicons/react/24/solid'
@@ -57,14 +58,7 @@ import { LinkPreviews } from '@/components/shared/link-preview-card'
 import type { ConversationMessageDTO } from '@/lib/shared/conversation/types'
 import { CSAT_FACES } from '@/lib/shared/db-types'
 import type { BlockReplyMetadata } from '@/lib/shared/db-types'
-import {
-  getMyConversationFn,
-  sendConversationMessageFn,
-  listConversationMessagesFn,
-  mintConversationStreamTokenFn,
-  submitCsatFn,
-} from '@/lib/server/functions/conversation'
-import { getConversationLinkedTicketFn } from '@/lib/server/functions/tickets'
+import { useVisitorSurfaceRpc } from '@/lib/client/visitor-surface-rpc'
 import { getWidgetCapabilitiesFn } from '@/lib/server/functions/widget-capabilities'
 import { TicketHeaderCard } from './ticket-header-card'
 import type { RequesterTicketDTO } from '@/lib/server/domains/tickets'
@@ -159,6 +153,13 @@ export interface VisitorConversationThreadProps {
   showHeader?: boolean
   /** Notified when the first send creates the conversation. */
   onConversationStarted?: (id: ConversationId) => void
+  /**
+   * Focus the composer as soon as it mounts. The surface decides: a "new
+   * conversation" landing on a desktop host wants the cursor in the box; a
+   * resumed thread (reading, not writing) or a mobile host (software keyboard
+   * would cover the thread) does not.
+   */
+  autofocusComposer?: boolean
 }
 
 /**
@@ -186,9 +187,11 @@ export function VisitorConversationThread({
   embedOpenMode = 'newTab',
   showHeader = true,
   onConversationStarted,
+  autofocusComposer = false,
 }: VisitorConversationThreadProps) {
   const intl = useIntl()
   const queryClient = useQueryClient()
+  const rpc = useVisitorSurfaceRpc()
   const firstName = firstNameOf(currentUser?.name)
 
   const [loading, setLoading] = useState(true)
@@ -379,7 +382,7 @@ export function VisitorConversationThread({
           conversationTarget === 'new'
             ? (createdConversationIdRef.current ?? null)
             : (conversationTarget ?? undefined)
-        const res = await getMyConversationFn({
+        const res = await rpc.getMyConversation({
           data: { conversationId: effectiveTarget, locale: intl.locale },
           headers: getAuthHeaders(),
         })
@@ -424,7 +427,7 @@ export function VisitorConversationThread({
   const refreshMessages = useCallback(async () => {
     if (!conversationId) return
     try {
-      const page = await listConversationMessagesFn({
+      const page = await rpc.listConversationMessages({
         data: { conversationId },
         headers: getAuthHeaders(),
       })
@@ -451,10 +454,11 @@ export function VisitorConversationThread({
   // narration. Fire-and-forget: a failed refresh keeps the current header.
   const refreshLinkedTicket = useCallback(() => {
     if (!conversationId) return
-    void getConversationLinkedTicketFn({
-      data: { conversationId },
-      headers: getAuthHeaders(),
-    })
+    void rpc
+      .getConversationLinkedTicket({
+        data: { conversationId },
+        headers: getAuthHeaders(),
+      })
       .then((ticket) => setLinkedTicket(ticket ?? null))
       .catch(() => {})
   }, [conversationId, getAuthHeaders])
@@ -484,7 +488,7 @@ export function VisitorConversationThread({
     buildUrl: async () => {
       if (!conversationId) return null
       try {
-        const { token } = await mintConversationStreamTokenFn({ headers: getAuthHeaders() })
+        const { token } = await rpc.mintConversationStreamToken({ headers: getAuthHeaders() })
         if (!token) return null
         return `/api/chat/stream?conversationId=${encodeURIComponent(
           conversationId
@@ -544,17 +548,19 @@ export function VisitorConversationThread({
         )
       setRating(rating)
       setCsatJustRated(true)
-      void submitCsatFn({
-        data: { conversationId, rating },
-        headers: getAuthHeaders(),
-      }).catch(() => {
-        // Roll back so the stars reappear for a retry — unless a later CSAT
-        // submit (e.g. the comment) already superseded this request.
-        if (csatSubmitGenRef.current === gen) {
-          setRating(null)
-          setCsatJustRated(false)
-        }
-      })
+      void rpc
+        .submitCsat({
+          data: { conversationId, rating },
+          headers: getAuthHeaders(),
+        })
+        .catch(() => {
+          // Roll back so the stars reappear for a retry — unless a later CSAT
+          // submit (e.g. the comment) already superseded this request.
+          if (csatSubmitGenRef.current === gen) {
+            setRating(null)
+            setCsatJustRated(false)
+          }
+        })
     },
     [conversationId, getAuthHeaders, queryClient]
   )
@@ -565,10 +571,12 @@ export function VisitorConversationThread({
     csatSubmitGenRef.current++ // supersede any in-flight rating-submit rollback
     setCsatCommentDone(true)
     const trimmed = csatComment.trim()
-    void submitCsatFn({
-      data: { conversationId, rating: csatRating, comment: trimmed || undefined },
-      headers: getAuthHeaders(),
-    }).catch(() => setCsatCommentDone(false)) // reopen the box for a retry on failure
+    void rpc
+      .submitCsat({
+        data: { conversationId, rating: csatRating, comment: trimmed || undefined },
+        headers: getAuthHeaders(),
+      })
+      .catch(() => setCsatCommentDone(false)) // reopen the box for a retry on failure
   }, [conversationId, csatRating, csatComment, getAuthHeaders])
 
   // Phase C conversational block layer: a structured reply (button tap /
@@ -583,7 +591,7 @@ export function VisitorConversationThread({
       if (!conversationId || submittingBlockId) return
       setSubmittingBlockId(blockReply.inReplyToMessageId)
       try {
-        const res = await sendConversationMessageFn({
+        const res = await rpc.sendConversationMessage({
           data: { conversationId, content: displayText, blockReply },
           headers: getAuthHeaders(),
         })
@@ -631,7 +639,7 @@ export function VisitorConversationThread({
   const handleCsatComment = useCallback(
     (rating: number, comment: string) => {
       if (!conversationId) return
-      void submitCsatFn({
+      void rpc.submitCsat({
         data: { conversationId, rating, comment: comment || undefined },
         headers: getAuthHeaders(),
       })
@@ -661,6 +669,9 @@ export function VisitorConversationThread({
   const [helpResults, setHelpResults] = useState<Array<{ slug: string; title: string }>>([])
   const helpSearchFn = helpSearch?.search
   const messageText = composer.text
+  useEffect(() => {
+    setHelpResults([])
+  }, [helpSearchFn, sessionVersion])
   useEffect(() => {
     if (!helpSearchFn || conversationId || messages.length > 0) {
       setHelpResults([])
@@ -714,9 +725,11 @@ export function VisitorConversationThread({
   // neutral "we'll reply here" note instead of a false email promise. With the
   // assistant fronting the conversation there is no "away" — it is always
   // available, so the hint is suppressed entirely; availability only becomes
-  // relevant again when the assistant hands off to a human (future).
+  // relevant again when the assistant hands off to a human (future). Withheld
+  // during the initial load: assistant/email-reply state is unknown until the
+  // thread arrives, and a hint that shows then vanishes reads as a glitch.
   const showOfflineHint =
-    !assistant && !available && (canEmailReply ? Boolean(offlineMessage) : true)
+    !loading && !assistant && !available && (canEmailReply ? Boolean(offlineMessage) : true)
 
   // Phase C conversational block layer: every block's derived state, computed
   // ONCE per [messages, conversationStatus] change and threaded into rows,
@@ -851,7 +864,7 @@ export function VisitorConversationThread({
               value: text,
             } as const)
           : undefined
-      const res = await sendConversationMessageFn({
+      const res = await rpc.sendConversationMessage({
         data: {
           conversationId: conversationId ?? undefined,
           content: text,
@@ -966,6 +979,11 @@ export function VisitorConversationThread({
             attachments={m.attachments}
             citations={m.citations}
             time={formatTime(m.createdAt)}
+            editedLabel={
+              m.editedAt
+                ? intl.formatMessage({ id: 'widget.messenger.edited', defaultMessage: '(edited)' })
+                : undefined
+            }
             linkPreviews={linkPreviews}
             getAuthHeaders={getAuthHeaders}
             embedOpenMode={embedOpenMode}
@@ -1079,8 +1097,16 @@ export function VisitorConversationThread({
                       key={n}
                       type="button"
                       onClick={() => submitRating(n)}
-                      className="text-lg leading-none text-muted-foreground/50 transition-colors hover:text-amber-500"
-                      aria-label={`Rate ${n} of 5`}
+                      // Brand colour rather than a fixed amber: the stars are
+                      // the only element in the thread that ignored the theme.
+                      className="rounded text-lg leading-none text-muted-foreground/50 transition-colors hover:text-primary focus-visible:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                      aria-label={intl.formatMessage(
+                        {
+                          id: 'widget.messenger.csat.rateAria',
+                          defaultMessage: 'Rate {n} of 5',
+                        },
+                        { n }
+                      )}
                     >
                       ★
                     </button>
@@ -1178,6 +1204,19 @@ export function VisitorConversationThread({
           className="h-full"
           rowClassName="px-3 py-1.5"
         />
+
+        {/* First load: the viewport has no rows yet (the greeting/empty row
+            is withheld until we know which thread this is), so bubble-shaped
+            placeholders sit where the newest messages will land. Overlaid,
+            not swapped, so the virtualizer's viewport ref stays mounted and
+            its end-anchoring measures the real element. */}
+        {loading && messages.length === 0 && (
+          <div className="pointer-events-none absolute inset-0 bg-background">
+            <ConversationThreadSkeleton
+              variant={conversationTarget === 'new' ? 'greeting' : 'thread'}
+            />
+          </div>
+        )}
 
         {/* Jump to latest — shown only when the visitor has scrolled up to read
             history (followOnAppend keeps the view pinned when already at end). */}
@@ -1321,16 +1360,17 @@ export function VisitorConversationThread({
                 <LazyRichTextEditor
                   // Remounts the editor to clear it after a send (no imperative
                   // ref exists to call clearContent()) — resetSignal starts at 0
-                  // (no remount, no autofocus on first mount) and increments on
-                  // every successful send, at which point we DO want focus back
-                  // so the visitor can keep typing without re-clicking.
+                  // and increments on every successful send, at which point we
+                  // DO want focus back so the visitor can keep typing without
+                  // re-clicking. First mount focuses only when the surface asks
+                  // (a fresh "new conversation" landing).
                   key={composer.resetSignal}
                   borderless
                   minHeight="1.5rem"
                   disabled={sending}
                   placeholder={composerPlaceholder}
                   features={VISITOR_CONVERSATION_FEATURES}
-                  autofocus={composer.resetSignal > 0 ? 'end' : false}
+                  autofocus={composer.resetSignal > 0 || autofocusComposer ? 'end' : false}
                   onChange={handleEditorChange}
                   onSubmit={onComposerSubmit}
                 />

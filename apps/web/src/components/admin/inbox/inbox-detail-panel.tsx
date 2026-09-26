@@ -44,9 +44,11 @@ import { ConversationTagsEditor } from '@/components/admin/conversation/conversa
 import { ConversationAttributesEditor } from '@/components/admin/conversation/conversation-attributes-editor'
 import { StatusControl } from '@/components/admin/conversation/status-control'
 import { UnreachableBadge, CHANNEL_LABEL } from '@/components/admin/conversation/channel-badge'
+import { getChannelDescriptor, githubIssueRefFromUrl } from '@/lib/shared/channels'
 import { TONE_CLASSES } from '@/components/admin/conversation/sla-chip'
 import { CompanyCard } from '@/components/admin/conversation/company-card'
 import { CopilotPanel } from '@/components/admin/conversation/copilot-panel'
+import { supportContactName } from '@/lib/shared/support-contact-name'
 import { usePersonBlockStatus } from '@/components/admin/users/block-person-control'
 import { TicketStageChip, TicketTypeBadge } from '@/components/admin/inbox/ticket-chips'
 import {
@@ -212,6 +214,8 @@ export interface InboxDetailPanelProps {
    *  Same bump-a-counter ping as the thread's `createTicketToken`. No-op when
    *  the tab isn't available (flag/permission off). */
   openCopilotToken?: number
+  /** Distinct GitHub users who have written on this issue. */
+  issuePeople?: { principalId: string; displayName: string; avatarUrl: string | null }[]
 }
 
 /**
@@ -234,6 +238,7 @@ export const InboxDetailPanel = memo(function InboxDetailPanel({
   onCreateTicket,
   onInsertFromCopilot,
   openCopilotToken,
+  issuePeople,
 }: InboxDetailPanelProps) {
   const { settings } = useRouteContext({ from: '/admin' }) as {
     settings?: { featureFlags?: FeatureFlags } | null
@@ -265,7 +270,7 @@ export const InboxDetailPanel = memo(function InboxDetailPanel({
     if (openCopilotToken === 0) return // the route-side reset, not a bump
     if (!showCopilotTab) return
     setTab('copilot')
-    // Focus once the (forceMount + CSS-hidden) Copilot content is un-hidden
+    // Focus once the (keepMounted + CSS-hidden) Copilot content is un-hidden
     // by the state commit above — rAF runs after React flushes it.
     requestAnimationFrame(() => askInputRef.current?.focus())
   }, [openCopilotToken, showCopilotTab])
@@ -281,9 +286,11 @@ export const InboxDetailPanel = memo(function InboxDetailPanel({
   const principalId: PrincipalId | undefined = isTicketItem
     ? (ticket?.requester?.principalId ?? undefined)
     : conversation?.visitor.principalId
-  const principalName = isTicketItem
-    ? (ticket?.requester?.displayName ?? 'Requester')
-    : (conversation?.visitor.displayName ?? 'Visitor')
+  // Public label only. Posts and comments keep this name; the card below
+  // prefers the account name once the portal profile loads.
+  const publicName = isTicketItem
+    ? ticket?.requester?.displayName
+    : conversation?.visitor.displayName
   const principalAvatarUrl = isTicketItem
     ? (ticket?.requester?.avatarUrl ?? null)
     : (conversation?.visitor.avatarUrl ?? null)
@@ -334,6 +341,11 @@ export const InboxDetailPanel = memo(function InboxDetailPanel({
   // `detail` is non-null only for identified portal users, so it doubles as the
   // identified-vs-anonymous signal (anonymous visitors aren't portal users).
   const isIdentified = !!detail
+  const contactName = supportContactName({
+    accountName: detail?.name,
+    publicName,
+    fallback: principalId ? (isTicketItem ? 'Requester' : 'Visitor') : 'No requester',
+  })
   const convoCount = history?.conversations.length ?? 0
   const convoMore = history?.hasMore ?? false
   const firstSeen = detail?.createdAt ?? conversation?.createdAt
@@ -361,7 +373,7 @@ export const InboxDetailPanel = memo(function InboxDetailPanel({
             <div className="flex items-center gap-2.5">
               <Avatar
                 src={principalAvatarUrl}
-                name={principalName}
+                name={contactName}
                 className="size-9 shrink-0 text-sm"
               />
               <div className="min-w-0">
@@ -369,9 +381,9 @@ export const InboxDetailPanel = memo(function InboxDetailPanel({
                   <Link
                     to="/admin/users"
                     search={{ selected: principalId }}
-                    className="flex items-center gap-1 text-sm font-medium hover:underline"
+                    className="flex min-w-0 items-center gap-1 text-sm font-medium hover:underline"
                   >
-                    <span className="truncate">{principalName}</span>
+                    <span className="min-w-0 truncate">{contactName}</span>
                     {detail?.emailVerified && (
                       <CheckBadgeIcon
                         className="h-3.5 w-3.5 shrink-0 text-primary"
@@ -380,9 +392,7 @@ export const InboxDetailPanel = memo(function InboxDetailPanel({
                     )}
                   </Link>
                 ) : (
-                  <p className="truncate text-sm font-medium">
-                    {principalId ? principalName : 'No requester'}
-                  </p>
+                  <p className="truncate text-sm font-medium">{contactName}</p>
                 )}
                 {principalId ? (
                   email ? (
@@ -391,6 +401,10 @@ export const InboxDetailPanel = memo(function InboxDetailPanel({
                       {!detail?.email && !isTicketItem && conversation?.visitorEmail && (
                         <span className="ml-1 text-muted-foreground/50">(in conversation)</span>
                       )}
+                    </p>
+                  ) : getChannelDescriptor(conversation?.channel ?? '')?.addressing === 'thread' ? (
+                    <p className="truncate text-xs text-muted-foreground">
+                      {getChannelDescriptor(conversation!.channel)?.label} user
                     </p>
                   ) : (
                     <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -481,6 +495,27 @@ export const InboxDetailPanel = memo(function InboxDetailPanel({
             )}
           </div>
         )}
+
+        {!isTicketItem &&
+          conversation?.channel === 'github' &&
+          issuePeople &&
+          issuePeople.length > 0 && (
+            <div className="space-y-2 border-t border-border/30 pt-4">
+              <span className={MENU_LABEL}>On this issue</span>
+              <ul className="space-y-2">
+                {issuePeople.map((person) => (
+                  <li key={person.principalId} className="flex min-w-0 items-center gap-2">
+                    <Avatar
+                      src={person.avatarUrl}
+                      name={person.displayName}
+                      className="size-6 shrink-0 text-xs"
+                    />
+                    <span className="truncate text-sm font-medium">{person.displayName}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
         {/* 2. Ticket card — populated when the item is or links a ticket;
               otherwise the create-ticket empty slot. */}
@@ -666,6 +701,20 @@ export const InboxDetailPanel = memo(function InboxDetailPanel({
               </span>
             </Row>
           )}
+          {!isTicketItem &&
+            conversation?.channel === 'github' &&
+            githubIssueRefFromUrl(conversation.customAttributes?.githubUrl) && (
+              <Row icon={ArrowTopRightOnSquareIcon} label="Issue">
+                <a
+                  href={String(conversation.customAttributes.githubUrl)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="truncate text-sm font-medium text-foreground underline-offset-2 hover:underline"
+                >
+                  {githubIssueRefFromUrl(conversation.customAttributes.githubUrl)}
+                </a>
+              </Row>
+            )}
           {!isTicketItem && conversation && (
             <Row icon={CalendarIcon} label="Created">
               <span className="text-sm font-medium text-foreground">
@@ -822,22 +871,22 @@ export const InboxDetailPanel = memo(function InboxDetailPanel({
             Copilot
           </TabsTrigger>
         </TabsList>
-        {/* Both tabs stay mounted (forceMount + CSS-hide instead of Radix's
+        {/* Both tabs stay mounted (keepMounted + CSS-hide instead of the
             default unmount-on-inactive) so Details keeps its scroll position
             and the Copilot thread survives switching tabs within the same
             item view — it only resets when the item itself changes (the
             whole subtree remounts via `key={selectedId}`). */}
         <TabsContent
           value="details"
-          forceMount
-          className="min-h-0 flex-1 flex-col overflow-hidden data-[state=active]:flex data-[state=inactive]:hidden"
+          keepMounted
+          className="min-h-0 flex flex-1 flex-col overflow-hidden"
         >
           {detailsBody}
         </TabsContent>
         <TabsContent
           value="copilot"
-          forceMount
-          className="min-h-0 flex-1 flex-col overflow-hidden data-[state=active]:flex data-[state=inactive]:hidden"
+          keepMounted
+          className="min-h-0 flex flex-1 flex-col overflow-hidden"
         >
           <CopilotPanel
             item={item}

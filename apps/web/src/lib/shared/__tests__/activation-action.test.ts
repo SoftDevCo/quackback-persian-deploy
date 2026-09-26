@@ -12,7 +12,6 @@ const base: LaunchStatus = {
   hasPublicBoard: false,
   memberCount: 1,
   hasBranding: false,
-  hasWidgetEnabled: false,
   hasWidgetInstalled: false,
   hasMessengerEnabled: false,
   hasFirstWin: false,
@@ -176,7 +175,7 @@ describe('selectActivationAction', () => {
         completedAt: '2026-08-14T12:00:00.000Z',
       },
       id: 'continue-help-article',
-      destination: '/admin/help-center/articles/art_1',
+      destination: '/admin/help-center?article=art_1',
     },
     {
       startingPoint: {

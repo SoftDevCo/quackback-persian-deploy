@@ -29,10 +29,13 @@ import { isPathManaged } from '@/lib/server/config-file/managed-paths'
 import { getTierLimits } from '@/lib/server/domains/settings/tier-limits.service'
 import {
   DEFAULT_MESSENGER_CONFIG,
-  DEFAULT_WIDGET_CONFIG,
+  flagsForGoal,
   resolveFeatureFlags,
 } from '@/lib/server/domains/settings/settings.types'
-import { parseJsonConfig } from '@/lib/server/domains/settings/settings.helpers'
+import {
+  parsePortalConfig,
+  parseWidgetConfig,
+} from '@/lib/server/domains/settings/settings.helpers'
 import { accessForPreset } from '@/lib/shared/schemas/boards'
 import { logger } from '@/lib/server/logger'
 import { emitPlgEvent } from '@/lib/server/plg-events'
@@ -233,20 +236,28 @@ export const setActivationGoalFn = createServerFn({ method: 'POST' })
   .validator(z.object({ outcome: outcomeSchema }))
   .handler(async ({ data }) => {
     const auth = await requireAuth({ permission: PERMISSIONS.SETTINGS_MANAGE })
-    const { state } = await mutateSetupStateAtomic((current, row) => {
+    const { state, value } = await mutateSetupStateAtomic(async (current, row, tx) => {
       if (isPathManaged('workspace.useCase', row.managedFieldPaths)) {
         throw new Error('Workspace goal is managed by your workspace admin')
       }
+      const { flags, enabledModules } = flagsForGoal(
+        resolveFeatureFlags(row.featureFlags),
+        data.outcome
+      )
+      await tx
+        .update(settings)
+        .set({ featureFlags: JSON.stringify(flags) })
+        .where(eq(settings.id, row.id))
       return {
         state: { ...current, useCase: data.outcome },
-        value: undefined,
+        value: { enabledModules },
       }
     })
     await emitPlgEvent(
       { name: 'onboarding_goal_saved', outcome: state.useCase! },
       { workspaceId: auth.settings.id, principalId: auth.principal.id }
     )
-    return { outcome: state.useCase! }
+    return { outcome: state.useCase!, enabledModules: value.enabledModules }
   })
 
 export interface CompleteStartingPointResult {
@@ -307,7 +318,8 @@ export const completeStartingPointFn = createServerFn({ method: 'POST' })
         if (!flags.supportInbox) {
           resolution = 'unavailable'
         } else {
-          const widget = parseJsonConfig(row.widgetConfig, DEFAULT_WIDGET_CONFIG)
+          const widget = parseWidgetConfig(row.widgetConfig)
+          const portal = parsePortalConfig(row.portalConfig)
           await tx
             .update(settings)
             .set({
@@ -320,6 +332,10 @@ export const completeStartingPointFn = createServerFn({ method: 'POST' })
                   ...(widget.messenger ?? {}),
                   enabled: true,
                 },
+              }),
+              portalConfig: JSON.stringify({
+                ...portal,
+                support: { ...portal.support, enabled: true },
               }),
             })
             .where(eq(settings.id, row.id))

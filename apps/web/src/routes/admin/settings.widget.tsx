@@ -45,6 +45,7 @@ import { BackLink } from '@/components/ui/back-link'
 import { PageHeader } from '@/components/shared/page-header'
 import { SettingsCard } from '@/components/admin/settings/settings-card'
 import { WidgetPreview } from '@/components/admin/settings/widget/widget-preview'
+import { WidgetLastDetected } from '@/components/admin/settings/widget/widget-last-detected'
 import { PreviewToggleButton } from '@/components/admin/settings/preview-toggle'
 import { InlineSpinner } from '@/components/admin/settings/inline-spinner'
 import { Label } from '@/components/ui/label'
@@ -72,9 +73,11 @@ import type {
   WidgetCardAudience,
   WidgetHomeConfig,
 } from '@/lib/shared/types/settings'
-import { SUPPORTED_LOCALES } from '@/lib/shared/i18n'
-import type { WidgetContentTranslation, WidgetTranslations } from '@/lib/shared/widget/translations'
-import { widgetOriginVerifiedLabel } from '@/lib/shared/widget/widget-origin'
+import { widgetInstallPresence } from '@/lib/shared/widget/widget-origin'
+import {
+  widgetConnectedStatusLabel,
+  widgetSdkUpdateDescription,
+} from '@/lib/shared/widget/sdk-version'
 import { DEFAULT_WIDGET_HOME_CARDS } from '@/lib/shared/types/settings'
 import { WIDGET_HERO_PATTERNS, heroBackdropStyle } from '@/lib/shared/widget/hero-style'
 import { ColorPickerGrid, ColorHexInput } from '@/components/shared/color-picker'
@@ -87,7 +90,6 @@ export const Route = createFileRoute('/admin/settings/widget')({
     const { queryClient } = context
     await Promise.all([
       queryClient.ensureQueryData(settingsQueries.widgetConfig()),
-      queryClient.ensureQueryData(settingsQueries.helpCenterConfig()),
       queryClient.ensureQueryData(adminQueries.boards()),
       queryClient.ensureQueryData(adminQueries.onboardingStatus()),
     ])
@@ -105,19 +107,18 @@ export function WidgetSettingsGate() {
 
 function WidgetSettingsPage() {
   const widgetConfigQuery = useSuspenseQuery(settingsQueries.widgetConfig())
-  const helpCenterConfigQuery = useSuspenseQuery(settingsQueries.helpCenterConfig())
   const boardsQuery = useSuspenseQuery(adminQueries.boards())
   const onboardingQuery = useSuspenseQuery(adminQueries.onboardingStatus())
   const { settings } = useRouteContext({ from: '__root__' })
 
   const flags = settings?.featureFlags as FeatureFlags | undefined
   const config = widgetConfigQuery.data
-  const helpCenterConfig = helpCenterConfigQuery.data
 
   const helpCenterFlagEnabled = flags?.helpCenter ?? false
-  const helpCenterEnabled = helpCenterConfig?.enabled ?? false
   const supportInboxFlagEnabled = flags?.supportInbox ?? false
-  const messengerEnabled = config.messenger?.enabled ?? false
+  const feedbackFlagEnabled = flags?.feedback ?? true
+  const changelogFlagEnabled = flags?.changelog ?? true
+  const supportTicketsFlagEnabled = flags?.supportTickets ?? false
 
   // Lifted editor state: position drives the preview's launcher chrome.
   const [position, setPosition] = useState<'bottom-right' | 'bottom-left'>(
@@ -125,6 +126,7 @@ function WidgetSettingsPage() {
   )
   // Draft label — mirrors into the preview live; persisted on blur.
   const [launcherLabel, setLauncherLabel] = useState(config.launcherLabel ?? '')
+  const [launcherGreeting, setLauncherGreeting] = useState(config.launcherGreeting ?? '')
   const [homeDraft, setHomeDraft] = useState<WidgetHomeConfig>(config.home ?? {})
 
   // The preview theme follows the admin's own theme until the toggle overrides
@@ -157,24 +159,29 @@ function WidgetSettingsPage() {
         description="Embed the messenger widget in your product — feedback, conversations, help, and updates"
       />
 
-      <WidgetInstallationStatusCard status={onboardingQuery.data} />
-
       {/* Full-screen editor: controls left, live preview right (sticky). */}
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(360px,440px)_minmax(0,1fr)] gap-6 items-start">
         <div className="space-y-4 min-w-0">
-          <WidgetToggle initialEnabled={config.enabled} />
+          <WidgetSiteCard initialEnabled={config.enabled} status={onboardingQuery.data} />
 
-          <ModulesCard
+          <TabsCard
             config={config}
             boards={boardsQuery.data}
+            helpCenterFlagEnabled={helpCenterFlagEnabled}
+            supportInboxFlagEnabled={supportInboxFlagEnabled}
+            feedbackFlagEnabled={feedbackFlagEnabled}
+            changelogFlagEnabled={changelogFlagEnabled}
+            supportTicketsFlagEnabled={supportTicketsFlagEnabled}
+          />
+
+          <LayoutCard
+            config={config}
             position={position}
             onPositionChange={setPosition}
             launcherLabel={launcherLabel}
             onLabelChange={setLauncherLabel}
-            helpCenterFlagEnabled={helpCenterFlagEnabled}
-            helpCenterEnabled={helpCenterEnabled}
-            supportInboxFlagEnabled={supportInboxFlagEnabled}
-            messengerEnabled={messengerEnabled}
+            launcherGreeting={launcherGreeting}
+            onGreetingChange={setLauncherGreeting}
           />
 
           <HomeCustomizationCard
@@ -184,8 +191,6 @@ function WidgetSettingsPage() {
           />
 
           <AssistantLinkCard assistant={config.messenger?.assistant} />
-
-          <WidgetTranslationsCard translations={config.translations} />
         </div>
 
         <div className="xl:sticky xl:top-6 min-w-0 xl:h-[calc(100vh-7.5rem)] flex flex-col">
@@ -214,6 +219,7 @@ function WidgetSettingsPage() {
               <WidgetPreview
                 position={position}
                 label={launcherLabel.trim() || undefined}
+                greeting={launcherGreeting.trim() || undefined}
                 theme={previewTheme}
                 refreshKey={previewRefreshKey}
               />
@@ -225,54 +231,51 @@ function WidgetSettingsPage() {
   )
 }
 
-function WidgetInstallationStatusCard({
+function WidgetSiteCard({
+  initialEnabled,
   status,
 }: {
-  status: { hasWidgetInstalled?: boolean; widgetOriginHost?: string | null }
+  initialEnabled: boolean
+  status: {
+    hasWidgetInstalled?: boolean
+    widgetOriginHost?: string | null
+    widgetLastDetectedAt?: string | null
+    widgetSdkVersion?: string | null
+    currentWidgetSdkVersion?: string
+    widgetSdkNeedsUpdate?: boolean
+  }
 }) {
-  return (
-    <SettingsCard
-      title="Installation"
-      description={
-        status.hasWidgetInstalled
-          ? widgetOriginVerifiedLabel(status.widgetOriginHost)
-          : 'Add the SDK to your site and verify the connection'
-      }
-    >
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/50 p-4">
-        <div className="flex items-center gap-2 text-sm">
-          <span
-            className={cn(
-              'h-2.5 w-2.5 rounded-full',
-              status.hasWidgetInstalled ? 'bg-emerald-500' : 'bg-muted-foreground/40'
-            )}
-          />
-          {status.hasWidgetInstalled ? 'Widget connected' : 'Not detected yet'}
-        </div>
-        <Button asChild size="sm" variant="outline">
-          <Link to="/admin/settings/widget/install">
-            {status.hasWidgetInstalled ? 'View installation' : 'Install widget'}
-            <ArrowRightIcon className="h-4 w-4" />
-          </Link>
-        </Button>
-      </div>
-    </SettingsCard>
-  )
-}
-
-function WidgetToggle({ initialEnabled }: { initialEnabled: boolean }) {
   const router = useRouter()
   const updateWidgetConfig = useUpdateWidgetConfig()
   const [isPending, startTransition] = useTransition()
   const [saving, setSaving] = useState(false)
   const [enabled, setEnabled] = useState(initialEnabled)
+  const presence = widgetInstallPresence({
+    connected: Boolean(status.hasWidgetInstalled),
+    enabled,
+    originHost: status.widgetOriginHost,
+  })
+  const needsUpdate = Boolean(status.hasWidgetInstalled && status.widgetSdkNeedsUpdate)
+  const statusTitle = needsUpdate
+    ? widgetConnectedStatusLabel({
+        hasWidgetInstalled: true,
+        widgetSdkNeedsUpdate: true,
+      })
+    : presence.title
+  const statusDescription = needsUpdate
+    ? widgetSdkUpdateDescription(status.widgetSdkVersion, status.currentWidgetSdkVersion)
+    : presence.description
+  const statusTone = needsUpdate ? 'detected' : presence.tone
 
   async function handleToggle(checked: boolean) {
+    const previous = enabled
     setEnabled(checked)
     setSaving(true)
     try {
       await updateWidgetConfig.mutateAsync({ enabled: checked })
       startTransition(() => router.invalidate())
+    } catch {
+      setEnabled(previous)
     } finally {
       setSaving(false)
     }
@@ -283,63 +286,95 @@ function WidgetToggle({ initialEnabled }: { initialEnabled: boolean }) {
       title="Add to your site"
       description="Show Quackback on your product so customers can send feedback and messages"
     >
-      <div className="flex items-center justify-between rounded-lg border border-border/50 p-4">
-        <div>
-          <Label htmlFor="widget-toggle" className="text-sm font-medium cursor-pointer">
-            Show on your website
-          </Label>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Use the focused installation flow after turning this on
-          </p>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border/50 px-3 py-2.5">
+          <div className="min-w-0 pe-3">
+            <Label htmlFor="widget-toggle" className="text-xs font-medium cursor-pointer">
+              Show on your website
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Visitors see the launcher on pages you added it to
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <InlineSpinner visible={saving || isPending} />
+            <Switch
+              id="widget-toggle"
+              checked={enabled}
+              onCheckedChange={handleToggle}
+              disabled={saving || isPending}
+              aria-label="Widget"
+            />
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <InlineSpinner visible={saving || isPending} />
-          <Switch
-            id="widget-toggle"
-            checked={enabled}
-            onCheckedChange={handleToggle}
-            disabled={saving || isPending}
-            aria-label="Widget"
-          />
+
+        <div className="rounded-lg border border-border/50 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <p className="flex min-w-0 items-center gap-2 text-xs font-medium">
+              <span
+                className={cn(
+                  'h-2 w-2 shrink-0 rounded-full',
+                  statusTone === 'live'
+                    ? 'bg-emerald-500'
+                    : statusTone === 'detected'
+                      ? 'bg-amber-500'
+                      : 'bg-muted-foreground/40'
+                )}
+              />
+              {statusTitle}
+            </p>
+            <Button
+              asChild
+              size="sm"
+              variant={presence.tone === 'idle' ? 'default' : 'ghost'}
+              className="shrink-0"
+            >
+              <Link to="/admin/settings/widget/install">
+                {presence.tone === 'idle' ? 'Set it up' : 'View installation'}
+                <ArrowRightIcon className="h-3.5 w-3.5" />
+              </Link>
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">{statusDescription}</p>
+          {presence.tone === 'idle' && (
+            <p className="text-xs text-muted-foreground mt-1">
+              The launcher on this page is only a preview. Visitors see it after you add it to your
+              site.
+            </p>
+          )}
+          {status.hasWidgetInstalled && <WidgetLastDetected at={status.widgetLastDetectedAt} />}
         </div>
       </div>
     </SettingsCard>
   )
 }
 
-function ModulesCard({
+export function TabsCard({
   config,
   boards,
-  position,
-  onPositionChange,
-  launcherLabel,
-  onLabelChange,
   helpCenterFlagEnabled,
-  helpCenterEnabled,
   supportInboxFlagEnabled,
-  messengerEnabled,
+  feedbackFlagEnabled,
+  changelogFlagEnabled,
+  supportTicketsFlagEnabled,
 }: {
   config: {
     defaultBoard?: string
-    launcherGreeting?: string
-    launcherLabel?: string
     tabs?: {
       feedback?: boolean
       changelog?: boolean
       help?: boolean
       messenger?: boolean
+      tickets?: boolean
       home?: boolean
     }
   }
   boards: { id: string; name: string; slug: string }[]
-  position: 'bottom-right' | 'bottom-left'
-  onPositionChange: (val: 'bottom-right' | 'bottom-left') => void
-  launcherLabel: string
-  onLabelChange: (val: string) => void
   helpCenterFlagEnabled: boolean
-  helpCenterEnabled: boolean
   supportInboxFlagEnabled: boolean
-  messengerEnabled: boolean
+  feedbackFlagEnabled: boolean
+  changelogFlagEnabled: boolean
+  supportTicketsFlagEnabled: boolean
 }) {
   const router = useRouter()
   const updateWidgetConfig = useUpdateWidgetConfig()
@@ -348,15 +383,32 @@ function ModulesCard({
   const [defaultBoard, setDefaultBoard] = useState(config.defaultBoard ?? '')
   const [tabs, setTabs] = useState({
     home: config.tabs?.home ?? true,
-    messenger: config.tabs?.messenger ?? false,
+    messenger: config.tabs?.messenger ?? true,
+    tickets: config.tabs?.tickets ?? true,
     feedback: config.tabs?.feedback ?? true,
-    changelog: config.tabs?.changelog ?? false,
+    changelog: config.tabs?.changelog ?? true,
     help: config.tabs?.help ?? false,
   })
 
-  const showHelpToggle = helpCenterFlagEnabled && helpCenterEnabled
-  const showMessagesToggle = supportInboxFlagEnabled && messengerEnabled
-  const showMessagesHint = supportInboxFlagEnabled && !messengerEnabled
+  const showHelpToggle = helpCenterFlagEnabled
+  const showMessagesToggle = supportInboxFlagEnabled
+  const showTicketsToggle = supportTicketsFlagEnabled
+  const bothContentProductsOn = feedbackFlagEnabled && changelogFlagEnabled
+  const contentSectionCount = [
+    feedbackFlagEnabled && tabs.feedback,
+    changelogFlagEnabled && tabs.changelog,
+    helpCenterFlagEnabled && tabs.help,
+    supportInboxFlagEnabled && tabs.messenger,
+    supportTicketsFlagEnabled && tabs.tickets,
+  ].filter(Boolean).length
+  const lastSectionLock = contentSectionCount <= 1
+  const lockFeedbackOff =
+    tabs.feedback && (bothContentProductsOn ? !tabs.changelog : lastSectionLock)
+  const lockChangelogOff =
+    tabs.changelog && (bothContentProductsOn ? !tabs.feedback : lastSectionLock)
+  const pairLockHint = (other: string) =>
+    `At least one of Feedback or Changelog stays on — enable ${other} to turn this off.`
+  const lastSectionHint = 'The widget needs at least one section.'
 
   const isBusy = saving || isPending
 
@@ -387,8 +439,8 @@ function ModulesCard({
 
   return (
     <SettingsCard
-      title="Modules"
-      description="Choose which sections the widget shows. The tab bar hides with a single section."
+      title="Tabs"
+      description="Choose which tabs the widget shows. The tab bar hides with a single section."
     >
       <div className="space-y-3">
         <TabRow
@@ -405,38 +457,49 @@ function ModulesCard({
           <TabRow
             id="tab-messages"
             label="Messages"
-            description="Conversations with your team and assistant"
+            description="Live chat conversations"
             checked={tabs.messenger}
-            disabled={isBusy}
+            disabled={isBusy || (tabs.messenger && lastSectionLock)}
+            disabledHint={lastSectionHint}
             saving={saving}
-            onChange={(checked) => void saveTab('messenger', checked)}
+            onChange={(checked) => {
+              if (!checked && lastSectionLock) return
+              void saveTab('messenger', checked)
+            }}
           />
         )}
-        {showMessagesHint && (
-          <div className="rounded-lg border border-border/50 bg-muted/30 px-3 py-2.5">
-            <p className="text-xs text-muted-foreground">
-              Enable Messenger in{' '}
-              <Link to="/admin/settings/channels/messenger" className="font-medium text-primary">
-                Messenger settings
-              </Link>{' '}
-              to add a Messages tab.
-            </p>
-          </div>
+
+        {showTicketsToggle && (
+          <TabRow
+            id="tab-tickets"
+            label="Tickets"
+            description="Shown only when a customer has tickets"
+            checked={tabs.tickets}
+            disabled={isBusy || (tabs.tickets && lastSectionLock)}
+            disabledHint={lastSectionHint}
+            saving={saving}
+            onChange={(checked) => {
+              if (!checked && lastSectionLock) return
+              void saveTab('tickets', checked)
+            }}
+          />
         )}
 
-        <TabRow
-          id="tab-feedback"
-          label="Feedback"
-          description="Search, vote, and submit ideas"
-          checked={tabs.feedback}
-          disabled={isBusy || (tabs.feedback && !tabs.changelog)}
-          disabledHint="At least one of Feedback or Changelog stays on — enable Changelog to turn this off."
-          saving={saving}
-          onChange={(checked) => {
-            if (!checked && !tabs.changelog) return
-            void saveTab('feedback', checked)
-          }}
-        />
+        {feedbackFlagEnabled && (
+          <TabRow
+            id="tab-feedback"
+            label="Feedback"
+            description="Search, vote, and submit ideas"
+            checked={tabs.feedback}
+            disabled={isBusy || lockFeedbackOff}
+            disabledHint={bothContentProductsOn ? pairLockHint('Changelog') : lastSectionHint}
+            saving={saving}
+            onChange={(checked) => {
+              if (!checked && lockFeedbackOff) return
+              void saveTab('feedback', checked)
+            }}
+          />
+        )}
 
         {showHelpToggle && (
           <TabRow
@@ -444,28 +507,116 @@ function ModulesCard({
             label="Help"
             description="Browse and search help center articles"
             checked={tabs.help}
-            disabled={isBusy}
+            disabled={isBusy || (tabs.help && lastSectionLock)}
+            disabledHint={lastSectionHint}
             saving={saving}
-            onChange={(checked) => void saveTab('help', checked)}
+            onChange={(checked) => {
+              if (!checked && lastSectionLock) return
+              void saveTab('help', checked)
+            }}
           />
         )}
 
-        <TabRow
-          id="tab-changelog"
-          label="Changelog"
-          description="Show product updates and shipped features"
-          checked={tabs.changelog}
-          disabled={isBusy || (tabs.changelog && !tabs.feedback)}
-          disabledHint="At least one of Feedback or Changelog stays on — enable Feedback to turn this off."
-          saving={saving}
-          onChange={(checked) => {
-            if (!checked && !tabs.feedback) return
-            void saveTab('changelog', checked)
-          }}
-        />
+        {changelogFlagEnabled && (
+          <TabRow
+            id="tab-changelog"
+            label="Changelog"
+            description="Show product updates and shipped features"
+            checked={tabs.changelog}
+            disabled={isBusy || lockChangelogOff}
+            disabledHint={bothContentProductsOn ? pairLockHint('Feedback') : lastSectionHint}
+            saving={saving}
+            onChange={(checked) => {
+              if (!checked && lockChangelogOff) return
+              void saveTab('changelog', checked)
+            }}
+          />
+        )}
       </div>
 
-      <div className="mt-5 space-y-2">
+      {feedbackFlagEnabled && (
+        <div className="mt-4 space-y-2">
+          <Label className="text-xs text-muted-foreground">Default board</Label>
+          <Select
+            value={defaultBoard || ''}
+            onValueChange={(val) => {
+              setDefaultBoard(val)
+              void save({ defaultBoard: val })
+            }}
+            disabled={isBusy}
+          >
+            <SelectTrigger
+              className="w-full"
+              onClear={
+                defaultBoard
+                  ? () => {
+                      setDefaultBoard('')
+                      void save({ defaultBoard: '' })
+                    }
+                  : undefined
+              }
+            >
+              <SelectValue placeholder="No default board" />
+            </SelectTrigger>
+            <SelectContent>
+              {boards.map((board) => (
+                <SelectItem key={board.id} value={board.slug}>
+                  {board.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Which board new posts from the widget default to
+          </p>
+        </div>
+      )}
+    </SettingsCard>
+  )
+}
+
+export function LayoutCard({
+  config,
+  position,
+  onPositionChange,
+  launcherLabel,
+  onLabelChange,
+  launcherGreeting,
+  onGreetingChange,
+}: {
+  config: {
+    launcherGreeting?: string
+    launcherLabel?: string
+  }
+  position: 'bottom-right' | 'bottom-left'
+  onPositionChange: (val: 'bottom-right' | 'bottom-left') => void
+  launcherLabel: string
+  onLabelChange: (val: string) => void
+  launcherGreeting: string
+  onGreetingChange: (val: string) => void
+}) {
+  const router = useRouter()
+  const updateWidgetConfig = useUpdateWidgetConfig()
+  const [isPending, startTransition] = useTransition()
+  const [saving, setSaving] = useState(false)
+  const isBusy = saving || isPending
+
+  async function save(updates: Parameters<typeof updateWidgetConfig.mutateAsync>[0]) {
+    setSaving(true)
+    try {
+      await updateWidgetConfig.mutateAsync(updates)
+      startTransition(() => router.invalidate())
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <SettingsCard
+      title="Layout"
+      description="Where the launcher sits and what it says on the host page"
+    >
+      <div className="space-y-2">
         <Label htmlFor="widget-position" className="text-xs text-muted-foreground">
           Button position
         </Label>
@@ -477,7 +628,7 @@ function ModulesCard({
           }}
           disabled={isBusy}
         >
-          <SelectTrigger className="w-full">
+          <SelectTrigger id="widget-position" className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -515,10 +666,11 @@ function ModulesCard({
         </Label>
         <Input
           id="launcher-greeting"
-          defaultValue={config.launcherGreeting ?? ''}
+          value={launcherGreeting}
           maxLength={120}
           placeholder="e.g. Need a hand?"
           disabled={isBusy}
+          onChange={(e) => onGreetingChange(e.target.value)}
           onBlur={(e) => {
             const value = e.target.value.trim()
             if (value === (config.launcherGreeting ?? '')) return
@@ -526,43 +678,7 @@ function ModulesCard({
           }}
         />
         <p className="text-[11px] text-muted-foreground/70">
-          Shown in a bubble beside the closed launcher to invite a chat. Leave blank for none.
-        </p>
-      </div>
-
-      <div className="mt-4 space-y-2">
-        <Label className="text-xs text-muted-foreground">Default board</Label>
-        <Select
-          value={defaultBoard || ''}
-          onValueChange={(val) => {
-            setDefaultBoard(val)
-            void save({ defaultBoard: val })
-          }}
-          disabled={isBusy}
-        >
-          <SelectTrigger
-            className="w-full"
-            onClear={
-              defaultBoard
-                ? () => {
-                    setDefaultBoard('')
-                    void save({ defaultBoard: '' })
-                  }
-                : undefined
-            }
-          >
-            <SelectValue placeholder="No default board" />
-          </SelectTrigger>
-          <SelectContent>
-            {boards.map((board) => (
-              <SelectItem key={board.id} value={board.slug}>
-                {board.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <p className="text-xs text-muted-foreground">
-          Which board new posts from the widget default to
+          Shown in a bubble beside the launcher to invite a chat. Leave blank for none.
         </p>
       </div>
     </SettingsCard>
@@ -614,7 +730,7 @@ function TabRow({
       <div className="flex items-center gap-2">
         <InlineSpinner visible={saving} />
         {showHint ? (
-          <TooltipProvider delayDuration={200}>
+          <TooltipProvider delay={200}>
             <Tooltip>
               {/* span trigger so the tooltip works over a disabled control */}
               <TooltipTrigger asChild>
@@ -1018,7 +1134,7 @@ function HomeCustomizationCard({
               Workspace logo
             </Label>
             <p className="text-xs text-muted-foreground">
-              Show your logo in the Home header (set it under Branding)
+              Show your logo in the Home header (set it under General)
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -1226,115 +1342,6 @@ function SortableHomeCardShell({
     >
       {children(dragHandle)}
     </div>
-  )
-}
-
-/** Cross-link to the AI & Automation page (assistant identity lives there). */
-const TRANSLATABLE_LOCALES = SUPPORTED_LOCALES.filter((l) => l !== 'en')
-const LOCALE_LABEL: Record<string, string> = {
-  de: 'German',
-  fr: 'French',
-  es: 'Spanish',
-  ar: 'Arabic',
-  fa: 'Persian',
-  ru: 'Russian',
-  'pt-br': 'Portuguese (Brazil)',
-  'zh-cn': 'Chinese (Simplified)',
-  'zh-tw': 'Chinese (Traditional)',
-}
-const TRANSLATION_FIELDS: { key: keyof WidgetContentTranslation; placeholder: string }[] = [
-  { key: 'welcomeMessage', placeholder: 'Welcome message' },
-  { key: 'offlineMessage', placeholder: 'Offline message' },
-  { key: 'greeting', placeholder: 'Home greeting' },
-  { key: 'subtitle', placeholder: 'Home subtitle' },
-]
-
-function WidgetTranslationsCard({ translations }: { translations?: WidgetTranslations }) {
-  const updateWidgetConfig = useUpdateWidgetConfig()
-  const [draft, setDraft] = useState<WidgetTranslations>(translations ?? {})
-  const [saving, setSaving] = useState(false)
-  const configured = Object.keys(draft)
-  const available = TRANSLATABLE_LOCALES.filter((l) => !configured.includes(l))
-
-  async function commit(next: WidgetTranslations) {
-    setDraft(next)
-    setSaving(true)
-    try {
-      await updateWidgetConfig.mutateAsync({ translations: next })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <SettingsCard
-      title="Translations"
-      description="Localise the customer-facing copy. Visitors see it in their browser language; the default copy is the fallback."
-    >
-      <div className="space-y-3">
-        {configured.length === 0 && (
-          <p className="text-xs text-muted-foreground">No translations yet.</p>
-        )}
-        {configured.map((locale) => (
-          <div key={locale} className="space-y-2 rounded-lg border border-border/50 p-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">{LOCALE_LABEL[locale] ?? locale}</span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 text-xs text-muted-foreground"
-                onClick={() => {
-                  const next = { ...draft }
-                  delete next[locale]
-                  void commit(next)
-                }}
-                disabled={saving}
-              >
-                Remove
-              </Button>
-            </div>
-            {TRANSLATION_FIELDS.map((f) => (
-              <Input
-                key={f.key}
-                defaultValue={draft[locale]?.[f.key] ?? ''}
-                placeholder={f.placeholder}
-                maxLength={1000}
-                className="h-8 text-xs"
-                disabled={saving}
-                onBlur={(e) => {
-                  const value = e.target.value.trim()
-                  if (value === (draft[locale]?.[f.key] ?? '')) return
-                  const entry: WidgetContentTranslation = {
-                    ...(draft[locale] ?? {}),
-                    [f.key]: value || undefined,
-                  }
-                  void commit({ ...draft, [locale]: entry })
-                }}
-              />
-            ))}
-          </div>
-        ))}
-        {available.length > 0 && (
-          <Select
-            value=""
-            onValueChange={(l) => void commit({ ...draft, [l]: {} })}
-            disabled={saving}
-          >
-            <SelectTrigger size="sm">
-              <SelectValue placeholder="Add a language" />
-            </SelectTrigger>
-            <SelectContent>
-              {available.map((l) => (
-                <SelectItem key={l} value={l}>
-                  {LOCALE_LABEL[l] ?? l}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
-    </SettingsCard>
   )
 }
 

@@ -23,22 +23,22 @@ export function FeedbackLinkedEmail({
   attributedByName,
   logoUrl,
 }: FeedbackLinkedEmailProps) {
-  const greeting = recipientName ? `ممنون ${recipientName}!` : 'ممنونیم!'
+  const greeting = recipientName ? `Thanks ${recipientName}!` : 'Thanks!'
   const attribution = attributedByName
-    ? ` ${attributedByName} از تیم ${workspaceName} بازخورد شما را به یک مطلب مرتبط کرده است.`
-    : ` بازخورد شما به یک مطلب در ${workspaceName} مرتبط شده است.`
+    ? ` ${attributedByName} from the ${workspaceName} team has linked your feedback to a post.`
+    : ` Your feedback has been linked to a post on ${workspaceName}.`
 
   return (
     <EmailLayout
-      preview={`بازخورد شما به «${postTitle}» مرتبط شده است`}
+      preview={`Your feedback has been linked to "${postTitle}"`}
       logoUrl={logoUrl}
       logoAlt={workspaceName}
     >
       {/* Content */}
-      <Heading style={typography.h1}>بازخورد شما در حال پیگیری است!</Heading>
+      <Heading style={typography.h1}>Your feedback is being tracked!</Heading>
       <Text style={typography.text}>
         {greeting}
-        {attribution} با تغییر وضعیت یا ثبت نظر جدید، به شما اطلاع داده می‌شود.
+        {attribution} You'll receive updates when the status changes or new comments are posted.
       </Text>
 
       {/* Post Title */}
@@ -58,13 +58,13 @@ export function FeedbackLinkedEmail({
       {/* CTA Button */}
       <Section style={{ textAlign: 'center', marginTop: '32px', marginBottom: '32px' }}>
         <Button style={button.primary} href={postUrl}>
-          مشاهده‌ی بازخورد
+          View Feedback
         </Button>
       </Section>
 
       {/* Footer */}
       <NotificationFooter
-        reason="این ایمیل به این دلیل برای شما ارسال شده که بازخوردتان به این مطلب مرتبط شده است."
+        reason="You received this email because your feedback was attributed to this post."
         unsubscribeUrl={unsubscribeUrl}
         preferencesUrl={preferencesUrl}
       />

@@ -1,10 +1,8 @@
 // @vitest-environment happy-dom
 import '@testing-library/jest-dom/vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { IntlProvider } from 'react-intl'
 import { describe, expect, it, vi } from 'vitest'
-import { CloudUseCaseForm } from '../_layout.usecase'
-import { CloudWorkspaceDetailsForm } from '../_layout.workspace'
+import { CloudWorkspaceDetailsForm } from '../-workspace-step'
 
 const IDENTITY = {
   version: 1,
@@ -27,7 +25,7 @@ describe('cloud post-handoff onboarding', () => {
     render(<CloudWorkspaceDetailsForm identity={IDENTITY} onSave={save} />)
 
     expect(screen.getByLabelText('Workspace name')).toHaveValue('Untitled workspace')
-    expect(screen.getByLabelText('Friendly Quackback URL')).toHaveValue('')
+    expect(screen.getByLabelText('Workspace URL')).toHaveValue('')
     expect(screen.queryByText(/Current address:/)).not.toBeInTheDocument()
     expect(screen.queryByText(IDENTITY.canonicalOrigin)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Skip/ })).not.toBeInTheDocument()
@@ -38,7 +36,7 @@ describe('cloud post-handoff onboarding', () => {
     fireEvent.click(continueButton)
     expect(save).not.toHaveBeenCalled()
 
-    fireEvent.change(screen.getByLabelText('Friendly Quackback URL'), {
+    fireEvent.change(screen.getByLabelText('Workspace URL'), {
       target: { value: 'awesome' },
     })
     expect(continueButton).toBeEnabled()
@@ -62,24 +60,23 @@ describe('cloud post-handoff onboarding', () => {
       />
     )
 
-    expect(screen.getByLabelText('Friendly Quackback URL')).toHaveValue('')
+    expect(screen.getByLabelText('Workspace URL')).toHaveValue('')
     expect(screen.queryByText(/ws-4a048e07941c5e7840e986c0/)).not.toBeInTheDocument()
   })
 
-  it('keeps the outcome screen to one primary action', async () => {
-    const save = vi.fn().mockResolvedValue(undefined)
+  it('keeps the Quackback suffix when a custom domain is canonical', () => {
     render(
-      <IntlProvider locale="en" messages={{}}>
-        <CloudUseCaseForm onSave={save} />
-      </IntlProvider>
+      <CloudWorkspaceDetailsForm
+        identity={{
+          ...IDENTITY,
+          canonicalOrigin: 'https://feedback.example.com',
+          platformHostname: 'awesome.quackback.co.uk',
+        }}
+        onSave={vi.fn()}
+      />
     )
 
-    expect(primaryButtons()).toHaveLength(1)
-    const continueButton = screen.getByRole('button', { name: 'Continue' })
-    expect(continueButton).toBeDisabled()
-    fireEvent.click(screen.getByRole('radio', { name: /Product feedback/ }))
-    expect(continueButton).toBeEnabled()
-    fireEvent.click(continueButton)
-    await waitFor(() => expect(save).toHaveBeenCalledWith('product_feedback'))
+    expect(screen.getByText('.quackback.co.uk')).toBeInTheDocument()
+    expect(screen.queryByText('.example.com')).not.toBeInTheDocument()
   })
 })

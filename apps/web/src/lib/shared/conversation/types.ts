@@ -15,6 +15,8 @@ import type {
 // so the client type can never drift from the column's allowed values. Imported
 // locally (used below) and re-exported for the module's consumers.
 import type {
+  Channel,
+  ChannelDelivery,
   ConversationStatus,
   ConversationSystemEvent,
   TiptapContent,
@@ -34,6 +36,7 @@ import type { JsonValue } from '@/lib/shared/json'
 // way) so this adds no new dependency-graph edge to adjudicate.
 import type { TicketDTO } from '@/lib/server/domains/tickets'
 export type {
+  ChannelDelivery,
   ConversationStatus,
   ConversationSystemEvent,
   ConversationEndReason,
@@ -49,7 +52,7 @@ export type ConversationSide = Exclude<MessageSenderType, 'system'>
 /** The surface a conversation is currently conducted on — mirrors the
  *  conversations.channel column enum. It follows the customer between surfaces;
  *  for how the thread originally arrived, read `source`. */
-export type Channel = 'messenger' | 'email'
+export type { Channel }
 
 /**
  * @deprecated Migration-only shape. One weekday's availability window in the
@@ -128,6 +131,10 @@ export interface ConversationMessageDTO {
   senderType: MessageSenderType
   content: string
   createdAt: string
+  /** ISO timestamp of the last body edit, or null/absent when never edited.
+   *  Optional so pre-existing fixtures keep compiling; `toMessageDTO` always
+   *  sets it. Drives the small "(edited)" mark beside the timestamp. */
+  editedAt?: string | null
   /** Null for system events, which have no human author. */
   author: ConversationAuthorDTO | null
   attachments: ConversationAttachment[]
@@ -147,6 +154,10 @@ export interface ConversationMessageDTO {
   contentJson: TiptapContent | null
   /** True when this message arrived via the email channel (inbound reply). */
   viaEmail: boolean
+  /** Outbound delivery onto a thread-addressed channel (GitHub issue, etc.).
+   *  Null/absent for messenger, email, inbound, and notes. Optional so existing
+   *  fixtures do not all need updating; toMessageDTO always sets it. */
+  channelDelivery?: ChannelDelivery | null
   /** Structured event for a 'system' message, so clients can localize it; null
    *  for ordinary messages (and legacy system rows, which fall back to content). */
   systemEvent: ConversationSystemEvent | null
@@ -390,11 +401,7 @@ export type AssistantActivityStatus = 'thinking' | 'searching_kb' | 'reviewing_c
  *  ASSISTANT_INVOLVEMENT_STATUSES; inlined here so the browser-safe module has
  *  no server import). */
 export type AssistantInvolvementOutcome =
-  | 'active'
-  | 'handed_off'
-  | 'resolved_confirmed'
-  | 'resolved_assumed'
-  | 'abandoned'
+  'active' | 'handed_off' | 'resolved_confirmed' | 'resolved_assumed' | 'abandoned'
 
 /** Short, teammate-facing phrasing for why Quinn handed off (keys mirror the db
  *  ASSISTANT_HANDOFF_REASONS). Single source for the escalation note + the agent
@@ -434,10 +441,11 @@ export interface ConversationAssistantActivity {
  * those switches to add a branch, touching code this task must not rewrite.
  * Parallel kinds instead fall through those switches' existing `default` case
  * untouched, and get their own small single-purpose reducers
- * (applyTicketThreadEvent, events-reducer.ts). There is no `ticket_message_updated`
- * (no reactions/flags on ticket messages) or `ticket_message_deleted` (no
- * delete-ticket-message feature exists yet) — add them alongside their
- * conversation counterparts if/when tickets grow those features.
+ * (applyTicketThreadEvent, events-reducer.ts). `ticket_message_updated` carries
+ * a body edit to a message shown in the ticket thread (ticket-parented, or
+ * conversation-parented on a linked pair); reactions and flags on ticket
+ * messages still do not broadcast. There is no `ticket_message_deleted` (no
+ * delete-ticket-message feature exists yet).
  *
  * `ticket: TicketDTO` on `ticket_updated` mirrors `conversation: ConversationDTO`
  * on `conversation`: one push refreshes both the list row and an open detail
@@ -448,6 +456,7 @@ export interface ConversationAssistantActivity {
  */
 export type TicketStreamEvent =
   | { kind: 'ticket_message'; ticketId: TicketId; message: ConversationMessageDTO }
+  | { kind: 'ticket_message_updated'; ticketId: TicketId; message: ConversationMessageDTO }
   | { kind: 'ticket_updated'; ticket: TicketDTO }
   | { kind: 'ticket_read'; ticketId: TicketId; side: MessageSenderType; at: string }
 
@@ -474,13 +483,23 @@ export type ConversationStreamEvent =
       typistPrincipalId?: PrincipalId
     }
   | { kind: 'message_deleted'; conversationId: ConversationId; messageId: ConversationMessageId }
-  // An existing message changed in an agent-only way (reaction or flag toggled).
-  // Carries the enriched AgentConversationMessageDTO and is published on the inbox
-  // channel ONLY (publishAgentConversationEvent) — it never reaches the visitor.
+  // An existing message changed in an agent-visible way: a reaction or flag
+  // toggle, or a body edit. Carries the enriched AgentConversationMessageDTO
+  // and is published on the inbox channel ONLY (publishAgentConversationEvent)
+  // — it never reaches the visitor. A customer-visible body edit ALSO publishes
+  // `message_edited` on the visitor's conversation channel.
   | {
       kind: 'message_updated'
       conversationId: ConversationId
       message: AgentConversationMessageDTO
+    }
+  // A customer-visible message body was edited. Base DTO only (no reactions,
+  // flags, or translatedFrom). Published on the visitor's conversation channel
+  // so their open thread replaces the bubble. Internal notes do not emit this.
+  | {
+      kind: 'message_edited'
+      conversationId: ConversationId
+      message: ConversationMessageDTO
     }
   // Ephemeral AI-assistant working status while Quinn's turn runs — never
   // persisted. Published on the conversation channel ONLY (not the inbox) so it

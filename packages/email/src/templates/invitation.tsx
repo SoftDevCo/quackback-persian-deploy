@@ -19,29 +19,29 @@ export function InvitationEmail({
 }: InvitationEmailProps) {
   return (
     <EmailLayout
-      preview={`پیوستن به ${organizationName} در کوئک‌بک`}
+      preview={`Join ${organizationName} on Quackback`}
       logoUrl={logoUrl}
       logoAlt={organizationName}
     >
       {/* Content */}
       <Heading style={typography.h1}>
-        {inviteeName ? `سلام ${inviteeName}، از شما دعوت شده است!` : 'از شما دعوت شده است!'}
+        {inviteeName ? `Hi ${inviteeName}, you're invited!` : "You're invited!"}
       </Heading>
       <Text style={typography.text}>
-        <strong>{invitedByName}</strong> از شما دعوت کرده است به <strong>{organizationName}</strong>{' '}
-        در کوئک‌بک بپیوندید.
+        <strong>{invitedByName}</strong> has invited you to join <strong>{organizationName}</strong>{' '}
+        on Quackback.
       </Text>
 
       {/* CTA Button */}
       <Section style={{ textAlign: 'center', marginTop: '32px', marginBottom: '32px' }}>
         <Button style={button.primary} href={inviteLink}>
-          پذیرش دعوت‌نامه
+          Accept Invitation
         </Button>
       </Section>
 
       {/* Fallback Link */}
       <Text style={typography.textSmall}>
-        یا این پیوند را در مرورگر خود کپی و جای‌گذاری کنید:{' '}
+        Or copy and paste this link into your browser:{' '}
         <Link href={inviteLink} style={utils.link}>
           {inviteLink}
         </Link>
@@ -49,7 +49,7 @@ export function InvitationEmail({
 
       {/* Footer */}
       <TransactionalFooter>
-        اگر منتظر این دعوت‌نامه نبوده‌اید، می‌توانید این ایمیل را نادیده بگیرید.
+        If you weren&apos;t expecting this invitation, you can ignore this email.
       </TransactionalFooter>
     </EmailLayout>
   )

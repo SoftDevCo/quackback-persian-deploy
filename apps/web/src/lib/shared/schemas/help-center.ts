@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod'
+import { PageLimitSchema } from './taxonomy'
 import { tiptapContentSchema } from './posts'
 import { SUPPORTED_LOCALES } from '../i18n'
 
@@ -87,7 +88,7 @@ export const listArticlesSchema = z.object({
   status: z.enum(['draft', 'published', 'all']).optional(),
   search: z.string().optional(),
   cursor: z.string().optional(),
-  limit: z.number().int().positive().max(100).optional(),
+  limit: PageLimitSchema,
   showDeleted: z.boolean().optional(),
   sort: z.enum(['newest', 'oldest']).optional(),
 })
@@ -96,7 +97,7 @@ export const listPublicArticlesSchema = z.object({
   categoryId: z.string().optional(),
   search: z.string().optional(),
   cursor: z.string().optional(),
-  limit: z.number().int().positive().max(100).optional(),
+  limit: PageLimitSchema,
 })
 
 export const listArticlePerformanceSchema = z.object({
@@ -132,7 +133,7 @@ export const articleFeedbackReasonSchema = z.object({
 
 export const listArticleFeedbackReasonsSchema = z.object({
   articleId: z.string().min(1),
-  limit: z.number().int().positive().max(100).optional(),
+  limit: PageLimitSchema,
 })
 
 export const getCategoryBySlugSchema = z.object({
@@ -177,7 +178,6 @@ export const helpCenterHeaderLinkSchema = z.object({
 })
 
 export const updateHelpCenterConfigSchema = z.object({
-  enabled: z.boolean().optional(),
   homepageTitle: z.string().min(1).max(200).optional(),
   homepageDescription: z.string().max(500).optional(),
   /** Wholesale replacement — the header renders at most 3 links. */
@@ -186,7 +186,6 @@ export const updateHelpCenterConfigSchema = z.object({
 
 export const updateHelpCenterSeoSchema = z.object({
   metaDescription: z.string().max(500).optional(),
-  sitemapEnabled: z.boolean().optional(),
   structuredDataEnabled: z.boolean().optional(),
   indexable: z.boolean().optional(),
 })

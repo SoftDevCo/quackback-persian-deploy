@@ -1,3 +1,6 @@
+import { can } from '@/lib/server/policy/authorize'
+import { PERMISSIONS } from '@/lib/shared/permissions'
+import type { Actor } from '@/lib/server/policy/types'
 /**
  * Source-adapter seam for Quinn's grounding retrieval.
  *
@@ -23,6 +26,8 @@ import type { PrincipalId, ConversationId } from '@quackback/ids'
 import type { ContentAudience } from './audience'
 import { toHelpCenterAudience } from './audience'
 import { retrieveKbArticles } from './retrieval'
+import { hcArticlePath } from '@/lib/shared/help-center-url'
+import { DEFAULT_LOCALE } from '@/lib/shared/i18n'
 import type { AssistantConfig, AssistantAgentKind } from '@/lib/shared/assistant/config'
 import type { AssistantCitation } from './assistant.toolspec'
 import { ASSISTANT_CITATION_TYPES, type AssistantCitationType } from './citation-types'
@@ -89,8 +94,8 @@ export interface KnowledgeSource {
 }
 
 /** Public help-center path for a retrieved article. */
-function helpArticleUrl(categorySlug: string, slug: string): string {
-  return `/hc/articles/${categorySlug}/${slug}`
+function helpArticleUrl(urlId: number, slug: string): string {
+  return hcArticlePath({ locale: DEFAULT_LOCALE, urlId, slug })
 }
 
 /**
@@ -127,7 +132,7 @@ export const kbKnowledgeSource: KnowledgeSource = {
         type: 'article' as const,
         id: a.id,
         title: a.title,
-        url: helpArticleUrl(a.categorySlug, a.slug),
+        url: helpArticleUrl(a.urlId, a.slug),
         // Public at the 'public' ceiling is guaranteed by the audience filter
         // (isPublic is always true there); on 'team' it distinguishes a
         // team-only article, flagged for the copilot leak gate.
@@ -150,6 +155,8 @@ export interface AssistantKnowledgeSnapshot {
   sources: ReadonlySet<AssistantCitationType>
   /** Whether the real-time `get_status` tool is registered this turn. */
   status: boolean
+  internalNotes?: boolean
+  pastConversations?: boolean
 }
 
 /**
@@ -197,15 +204,21 @@ export function resolveAssistantKnowledgeSnapshot(
       if (k.documents) sources.add('document')
       return { sources, status: k.status }
     }
+    case 'workspace':
     case 'copilot': {
-      const k = config.agents.copilot.knowledge
+      const k = config.agents[agent].knowledge
       if (k.helpCenter) sources.add('article')
       if (k.posts) sources.add('post')
-      if (k.pastConversations) sources.add('summary')
+      if (k.pastConversations || (agent === 'workspace' && k.internalNotes)) sources.add('summary')
       if (k.tickets) sources.add('ticket')
       if (k.changelog) sources.add('changelog')
       if (k.documents) sources.add('document')
-      return { sources, status: k.status }
+      return {
+        sources,
+        status: k.status,
+        internalNotes: k.internalNotes,
+        pastConversations: k.pastConversations,
+      }
     }
     default: {
       const exhaustive: never = agent
@@ -260,12 +273,19 @@ export function describeEnabledKnowledgeSources(
  * "knowledge base always available" default before per-agent toggles existed.
  */
 export async function resolveKnowledgeSources(
-  enabled?: ReadonlySet<AssistantCitationType>
+  enabled?: ReadonlySet<AssistantCitationType>,
+  workspaceSearch = false,
+  includeInternalNotes = false,
+  notesOnly = false,
+  actor?: Actor
 ): Promise<KnowledgeSource[]> {
   const enabledSet = enabled ?? new Set<AssistantCitationType>(['article'])
   const sources: KnowledgeSource[] = []
   if (enabledSet.has('article')) sources.push(kbKnowledgeSource)
-  if (enabledSet.has('post')) {
+  if (
+    enabledSet.has('post') &&
+    (!workspaceSearch || (actor && can(actor, PERMISSIONS.POST_VIEW_PRIVATE)))
+  ) {
     sources.push((await import('./posts-retrieval')).postsKnowledgeSource)
   }
   if (enabledSet.has('snippet')) {
@@ -273,10 +293,19 @@ export async function resolveKnowledgeSources(
   }
   if (enabledSet.has('summary')) {
     sources.push(
-      (await import('./conversation-summary-retrieval')).conversationSummariesKnowledgeSource
+      workspaceSearch
+        ? (await import('./workspace-retrieval')).workspaceConversationSource(
+            includeInternalNotes,
+            notesOnly,
+            actor
+          )
+        : (await import('./conversation-summary-retrieval')).conversationSummariesKnowledgeSource
     )
   }
-  if (enabledSet.has('ticket')) {
+  if (
+    enabledSet.has('ticket') &&
+    (!workspaceSearch || (actor && can(actor, PERMISSIONS.TICKET_VIEW_ALL)))
+  ) {
     sources.push((await import('./tickets-retrieval')).ticketsKnowledgeSource)
   }
   if (enabledSet.has('changelog')) {
@@ -332,6 +361,10 @@ export async function retrieveKnowledge(
   ceiling: ContentAudience,
   opts: {
     topK?: number
+    actor?: Actor
+    workspaceSearch?: boolean
+    includeInternalNotes?: boolean
+    notesOnly?: boolean
     signal?: AbortSignal
     customerPrincipalId?: PrincipalId
     conversationId?: ConversationId | null
@@ -342,7 +375,13 @@ export async function retrieveKnowledge(
   } = {}
 ): Promise<RetrievedItem[]> {
   const topK = opts.topK ?? KNOWLEDGE_TOP_K
-  const resolved = await resolveKnowledgeSources(opts.enabledSources)
+  const resolved = await resolveKnowledgeSources(
+    opts.enabledSources,
+    ceiling === 'team' && opts.workspaceSearch === true,
+    opts.includeInternalNotes,
+    opts.notesOnly,
+    opts.actor
+  )
   const sources = opts.sourceTypes
     ? resolved.filter((source) => opts.sourceTypes!.includes(source.sourceType))
     : resolved

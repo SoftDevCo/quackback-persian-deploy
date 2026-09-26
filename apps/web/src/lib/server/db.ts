@@ -168,10 +168,15 @@ export {
   oauthAccessTokenRelations,
   oauthClient,
   oauthClientRelations,
+  oauthClientAssertion,
+  oauthClientResource,
+  oauthClientResourceRelations,
   oauthConsent,
   oauthConsentRelations,
   oauthRefreshToken,
   oauthRefreshTokenRelations,
+  oauthResource,
+  oauthResourceRelations,
   principal,
   principalRelations,
   oneTimeToken,
@@ -179,6 +184,8 @@ export {
   sessionRelations,
   settings,
   settingsRelations,
+  workspaceExperiments,
+  workspaceExperimentsRelations,
   identityProvider,
   ssoVerifiedDomain,
   twoFactor,
@@ -467,6 +474,12 @@ export {
   ASSISTANT_TOOL_CALL_STATUSES,
   // Schema tables - assistant usage events (Copilot outcome loop)
   assistantEvents,
+  slackUserLinks,
+  slackThreadSessions,
+  integrationDeliveries,
+  integrationSyncOperations,
+  integrationSyncAttempts,
+  integrationSyncActions,
   // Schema tables - RBAC
   roles,
   permissions,
@@ -482,6 +495,8 @@ export {
   SYSTEM_ROLE_DEFS,
   SYSTEM_ROLE_PERMISSIONS,
   presetForLegacyRole,
+  // Client-safe permissions mirror renderer (pure; used by the drift test)
+  renderPermissionsMirror,
   // Migration ledger status (readiness probe)
   getMigrationStatus,
   // System-data reconcile (integration tests exercise the assignment heal)

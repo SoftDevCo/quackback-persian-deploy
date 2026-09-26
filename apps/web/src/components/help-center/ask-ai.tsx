@@ -23,8 +23,10 @@ import type {
 } from '@/lib/shared/help-center/kb-ask-contract'
 import { AssistantAnswer } from '@/components/shared/conversation/assistant-turn'
 import type { ConversationMessageCitation } from '@/lib/shared/conversation/types'
-import { extractHttpErrorMessage } from '@/lib/client/utils/http-error'
+import { aguiFetchClient } from '@/lib/client/utils/agui-fetch'
 import { splitByTerms } from './ask-ai-text'
+import { DEFAULT_LOCALE } from '@/lib/shared/i18n'
+import { hcArticlePath } from '@/lib/shared/help-center-url'
 
 // Existing importers keep the AskAiSourceMeta name.
 export type AskAiSourceMeta = KbAskSourceMeta
@@ -37,11 +39,16 @@ export type AskAiSourceMeta = KbAskSourceMeta
  * Whether Ask AI can be offered: the flag is on AND a model is configured.
  * Backed by the kb-ask capability probe (404 when flags are off).
  */
-export function useAskAiAvailable(enabled = true): boolean {
+export function useAskAiAvailable(
+  enabled = true,
+  options?: { getHeaders?: () => HeadersInit; sessionVersion?: number }
+): boolean {
   const query = useQuery({
-    queryKey: ['kb-ask', 'capability'],
+    queryKey: ['kb-ask', 'capability', options?.sessionVersion ?? 'anon'] as const,
     queryFn: async () => {
-      const res = await fetch('/api/widget/kb-ask')
+      const res = await fetch('/api/widget/kb-ask', {
+        headers: options?.getHeaders?.(),
+      })
       if (!res.ok) return false
       const json = (await res.json()) as { data?: { enabled?: boolean } }
       return json.data?.enabled === true
@@ -76,9 +83,13 @@ const IDLE_STATE: AskAiState = {
   related: [],
 }
 
-/** In-app two-segment help-center article path (category + article slug). */
+/** Public help-center article path. */
 function articleHref(source: AskAiSourceMeta): string {
-  return `/hc/articles/${source.categorySlug}/${source.slug}`
+  return hcArticlePath({
+    locale: DEFAULT_LOCALE,
+    urlId: source.urlId,
+    slug: source.slug,
+  })
 }
 
 /** Present cited sources as the shared assistant citation shape so the answer
@@ -94,21 +105,10 @@ function toCitations(sources: AskAiSourceMeta[]): ConversationMessageCitation[] 
 
 const KB_ASK_URL = '/api/widget/kb-ask'
 
-/** Non-2xx responses carry the widget `{error:{message}}` envelope (rate
- *  limits, flag gates, budget); surface that message on the thrown error so a
- *  transport failure isn't a generic one. fetchClient must satisfy
- *  `typeof fetch` (including `preconnect`), so copy it off the global. */
-const askAiFetch: typeof fetch = Object.assign(
-  async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const res = await fetch(input, init)
-    if (!res.ok) throw new Error(await extractHttpErrorMessage(res))
-    return res
-  },
-  { preconnect: fetch.preconnect }
-)
-
 /** Drive one Ask AI question at a time; re-asking aborts the previous run. */
-export function useAskAi() {
+export function useAskAi(options?: { getHeaders?: () => HeadersInit }) {
+  const getHeadersRef = useRef(options?.getHeaders)
+  getHeadersRef.current = options?.getHeaders
   const [state, setState] = useState<AskAiState>(IDLE_STATE)
   const clientRef = useRef<ChatClient | null>(null)
 
@@ -181,7 +181,10 @@ export function useAskAi() {
     }
 
     const client = new ChatClient({
-      connection: fetchServerSentEvents(KB_ASK_URL, () => ({ fetchClient: askAiFetch })),
+      connection: fetchServerSentEvents(KB_ASK_URL, () => ({
+        // Non-2xx widget envelopes become a synthetic RUN_ERROR SSE frame.
+        fetchClient: aguiFetchClient(() => getHeadersRef.current?.()),
+      })),
       onChunk: (rawChunk: StreamChunk) => {
         const chunk = rawChunk as {
           type: string
@@ -271,6 +274,10 @@ export interface AskAiSearchControllerOptions {
   /** Surface hook fired when the answer panel is dismissed (e.g. reopen the
    *  dropdown for the current query). */
   onDismiss?: () => void
+  /** Widget Bearer (or empty on the portal, which uses cookies). */
+  getHeaders?: () => HeadersInit
+  /** Widget session — reset an open answer when identity changes. */
+  sessionVersion?: number
 }
 
 /**
@@ -289,8 +296,10 @@ export function useAskAiSearchController({
   onClearQuery,
   onAsk,
   onDismiss,
+  getHeaders,
+  sessionVersion,
 }: AskAiSearchControllerOptions) {
-  const { state: askAiState, ask: askAi, reset: resetAskAi } = useAskAi()
+  const { state: askAiState, ask: askAi, reset: resetAskAi } = useAskAi({ getHeaders })
   // Keyboard selection over [ask-ai row, ...results]; -1 = nothing selected.
   const [selectedIndex, setSelectedIndex] = useState(-1)
 
@@ -304,6 +313,12 @@ export function useAskAiSearchController({
     resetAskAi()
     setSelectedIndex(-1)
   }, [query, resetAskAi])
+
+  // Logout / identify must not leave the previous visitor's cited titles up.
+  useEffect(() => {
+    resetAskAi()
+    setSelectedIndex(-1)
+  }, [sessionVersion, resetAskAi])
 
   const triggerAsk = useCallback(() => {
     if (!hasAskRow) return

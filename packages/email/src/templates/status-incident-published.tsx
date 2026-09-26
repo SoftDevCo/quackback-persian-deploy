@@ -33,23 +33,10 @@ const impactColors: Record<IncidentImpact, string> = {
 }
 
 const impactLabels: Record<IncidentImpact, string> = {
-  none: 'بدون تأثیر',
-  minor: 'تأثیر جزئی',
-  major: 'تأثیر عمده',
-  critical: 'تأثیر بحرانی',
-}
-
-function localizeStatusLabel(status: string): string {
-  const key = status.toLowerCase().replace(/[\s-]+/g, '_')
-  const labels: Record<string, string> = {
-    investigating: 'در حال بررسی',
-    identified: 'شناسایی‌شده',
-    monitoring: 'در حال پایش',
-    resolved: 'برطرف‌شده',
-    scheduled: 'زمان‌بندی‌شده',
-    in_progress: 'در حال انجام',
-  }
-  return labels[key] ?? status
+  none: 'No impact',
+  minor: 'Minor impact',
+  major: 'Major impact',
+  critical: 'Critical impact',
 }
 
 export function StatusIncidentPublishedEmail({
@@ -65,17 +52,16 @@ export function StatusIncidentPublishedEmail({
   logoUrl,
 }: StatusIncidentPublishedEmailProps) {
   const accentColor = impactColors[impact]
-  const localizedStatusLabel = localizeStatusLabel(statusLabel)
 
   return (
     <EmailLayout
-      preview={`${incidentTitle} (${localizedStatusLabel})`}
+      preview={`${incidentTitle} (${statusLabel})`}
       logoUrl={logoUrl}
       logoAlt={workspaceName}
     >
       {/* Content */}
-      <Heading style={typography.h1}>رخداد جدید گزارش شد</Heading>
-      <Text style={typography.text}>{workspaceName} به‌تازگی صفحه‌ی وضعیت خود را به‌روزرسانی کرده است.</Text>
+      <Heading style={typography.h1}>New incident reported</Heading>
+      <Text style={typography.text}>{workspaceName} just posted an update to its status page.</Text>
 
       {/* Impact bar */}
       <Section
@@ -96,7 +82,7 @@ export function StatusIncidentPublishedEmail({
             marginBottom: '0',
           }}
         >
-          {impactLabels[impact]} &middot; {localizedStatusLabel}
+          {impactLabels[impact]} &middot; {statusLabel}
         </Text>
       </Section>
 
@@ -136,7 +122,7 @@ export function StatusIncidentPublishedEmail({
               marginBottom: '8px',
             }}
           >
-          مؤلفه‌های تحت تأثیر
+            Affected components
           </Text>
           {affectedComponents.map((component) => (
             <Text
@@ -152,13 +138,13 @@ export function StatusIncidentPublishedEmail({
       {/* CTA Button */}
       <Section style={{ textAlign: 'center', marginTop: '32px', marginBottom: '32px' }}>
         <Button style={button.primary} href={incidentUrl}>
-          مشاهده‌ی وضعیت فعلی
+          View live status
         </Button>
       </Section>
 
       {/* Footer */}
       <NotificationFooter
-        reason="این ایمیل به این دلیل برای شما ارسال شده که دریافت به‌روزرسانی‌های وضعیت را فعال کرده‌اید."
+        reason="You received this email because you're subscribed to status updates."
         unsubscribeUrl={unsubscribeUrl}
         preferencesUrl={preferencesUrl}
       />

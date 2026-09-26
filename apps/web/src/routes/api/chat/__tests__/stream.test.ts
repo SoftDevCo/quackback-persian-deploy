@@ -162,13 +162,13 @@ beforeEach(() => {
   mockReadActivitySnapshot.mockResolvedValue(null)
 })
 
-function tokenPrincipal(role: string, type = 'user') {
-  mockVerifyStreamToken.mockReturnValue('principal_tok')
+function tokenPrincipal(role: string, type = 'user', scope = 'dashboard') {
+  mockVerifyStreamToken.mockReturnValue({ principalId: 'principal_tok', scope })
   mockPrincipalFindFirst.mockResolvedValue({ id: 'principal_tok', role, type })
 }
 
-function sessionPrincipal(role: string, type = 'user') {
-  mockGetSession.mockResolvedValue({ user: { id: 'user_1' } })
+function sessionPrincipal(role: string, type = 'user', scope = 'dashboard') {
+  mockGetSession.mockResolvedValue({ session: { id: 'sess_1', scope }, user: { id: 'user_1' } })
   mockPrincipalFindFirst.mockResolvedValue({ id: 'principal_sess', role, type })
 }
 
@@ -186,7 +186,7 @@ describe('GET /api/chat/stream - principal resolution', () => {
   })
 
   it('401s for a valid-signature token whose principal no longer exists', async () => {
-    mockVerifyStreamToken.mockReturnValue('principal_gone')
+    mockVerifyStreamToken.mockReturnValue({ principalId: 'principal_gone', scope: 'dashboard' })
     mockPrincipalFindFirst.mockResolvedValue(undefined)
     const res = await GET({ request: req('?scope=inbox&token=t') })
     expect(res.status).toBe(401)
@@ -217,6 +217,20 @@ describe('GET /api/chat/stream - inbox scope', () => {
     expect(res.headers.get('Content-Type')).toContain('text/event-stream')
     await settleAndClose(res)
     expect(mockSubscribe).toHaveBeenCalledWith(['conversation:inbox'], expect.any(Function))
+  })
+
+  it('403s a promoted team role carried on a non-dashboard token', async () => {
+    tokenPrincipal('admin', 'user', 'widget')
+    const res = await GET({ request: req('?scope=inbox&token=t') })
+    expect(res.status).toBe(403)
+    expect(mockSubscribe).not.toHaveBeenCalled()
+  })
+
+  it('403s a promoted team role carried on a non-dashboard session', async () => {
+    sessionPrincipal('admin', 'user', 'widget')
+    const res = await GET({ request: req('?scope=inbox') })
+    expect(res.status).toBe(403)
+    expect(mockSubscribe).not.toHaveBeenCalled()
   })
 })
 
@@ -470,6 +484,42 @@ describe('GET /api/chat/stream - assistant activity snapshot replay', () => {
     const res = await GET({ request: req('?conversationId=conversation_1&token=t') })
     await settleAndClose(res)
     expect(mockReadActivitySnapshot).toHaveBeenCalledWith('conversation_1')
+  })
+})
+
+describe('GET /api/chat/stream - teardown keeps the workspace scope', () => {
+  it('clears presence inside the request workspace scope when the client disconnects', async () => {
+    const { createWorkspaceScope, getWorkspaceScope, runWithWorkspaceScope } =
+      await import('@/lib/server/workspaces/workspace-context')
+    const scope = createWorkspaceScope({
+      workspace: { workspaceKey: 'inst_stream' },
+      db: {},
+      sql: {},
+      origin: 'request',
+      secrets: { secretKey: 'd'.repeat(64), storage: null, storageProblem: 'not read here' },
+    } as never)
+    tokenPrincipal('member')
+    let scopeSeenByClear: string | null | undefined
+    mockClearPresence.mockImplementation(async () => {
+      scopeSeenByClear = getWorkspaceScope()?.workspace.workspaceKey ?? null
+      return false
+    })
+
+    // Opened inside a workspace scope, exactly as the middleware would run it…
+    const controller = new AbortController()
+    const request = new Request('http://test/api/chat/stream?scope=inbox', {
+      signal: controller.signal,
+    })
+    const res = await runWithWorkspaceScope(scope, () => GET({ request }))
+    expect(res.status).toBe(200)
+    await vi.waitFor(() => expect(mockMarkPresent).toHaveBeenCalled())
+
+    // …and aborted from outside it, which is where the runtime fires the
+    // signal. Teardown must not see an empty scope.
+    expect(getWorkspaceScope()).toBeNull()
+    controller.abort()
+    await vi.waitFor(() => expect(mockClearPresence).toHaveBeenCalled())
+    expect(scopeSeenByClear).toBe('inst_stream')
   })
 })
 
