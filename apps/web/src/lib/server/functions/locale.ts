@@ -1,5 +1,10 @@
 import { createServerFn } from '@tanstack/react-start'
-import { PERSIAN_DEFAULT_LOCALE, loadPortalMessages, type SupportedLocale } from '@/lib/shared/i18n'
+import {
+  PERSIAN_DEFAULT_LOCALE,
+  loadPortalMessages,
+  loadUnsubscribeMessages,
+  type SupportedLocale,
+} from '@/lib/shared/i18n'
 
 /**
  * Resolve the portal locale from the configured Persian default.
@@ -29,5 +34,18 @@ export async function loadPortalIntl(): Promise<{
 }> {
   const locale = await getPortalLocaleFn()
   const messages = await loadPortalMessages(locale)
+  return { locale, messages }
+}
+
+/**
+ * {@link loadPortalIntl} for the standalone /unsubscribe page, which renders
+ * only its own `unsubscribe.` strings and so seeds only those.
+ */
+export async function loadUnsubscribeIntl(): Promise<{
+  locale: SupportedLocale
+  messages: Record<string, string>
+}> {
+  const locale = await getPortalLocaleFn()
+  const messages = await loadUnsubscribeMessages(locale)
   return { locale, messages }
 }

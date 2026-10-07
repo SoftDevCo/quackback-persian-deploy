@@ -19,6 +19,7 @@ import { createLogger } from '@quackback/logger'
 import { isSyntheticAnonEmail } from './anon'
 import { applyDisplayName, sendViaSes } from './ses'
 import { sendViaResend } from './resend'
+import { listUnsubscribeHeaders } from './list-unsubscribe'
 import { currentEmailIdempotencyKey } from './idempotency'
 import { EmailConfigError, resendApiKey, resolveEmailProvider } from './provider'
 import type { EmailProvider } from './provider'
@@ -901,6 +902,7 @@ export async function sendStatusChangeEmail(params: SendStatusChangeParams): Pro
       preferencesUrl,
       logoUrl,
     }),
+    extraHeaders: listUnsubscribeHeaders(unsubscribeUrl),
     emailType: 'StatusChangeEmail',
     preview: { postUrl },
   })
@@ -951,6 +953,7 @@ export async function sendNewCommentEmail(params: SendNewCommentParams): Promise
       preferencesUrl,
       logoUrl,
     }),
+    extraHeaders: listUnsubscribeHeaders(unsubscribeUrl),
     emailType: 'NewCommentEmail',
     preview: { postUrl },
   })
@@ -1414,6 +1417,7 @@ export async function sendPostMentionEmail(args: SendPostMentionEmailArgs): Prom
       preferencesUrl,
       logoUrl,
     }),
+    extraHeaders: listUnsubscribeHeaders(unsubscribeUrl),
     emailType: 'PostMentionEmail',
     preview: { postUrl },
   })
@@ -1530,6 +1534,7 @@ export async function sendChangelogPublishedEmail(
       logoUrl,
     }),
     from,
+    extraHeaders: listUnsubscribeHeaders(unsubscribeUrl),
     emailType: 'ChangelogPublishedEmail',
     preview: { changelogUrl },
   })
@@ -1579,6 +1584,7 @@ export async function sendFeedbackLinkedEmail(
       attributedByName,
       logoUrl,
     }),
+    extraHeaders: listUnsubscribeHeaders(unsubscribeUrl),
     emailType: 'FeedbackLinkedEmail',
     preview: { postUrl },
   })
@@ -1635,6 +1641,7 @@ export async function sendStatusIncidentPublishedEmail(
       preferencesUrl,
       logoUrl,
     }),
+    extraHeaders: listUnsubscribeHeaders(unsubscribeUrl),
     emailType: 'StatusIncidentPublishedEmail',
     preview: { incidentUrl },
   })
@@ -1693,6 +1700,7 @@ export async function sendStatusMaintenanceScheduledEmail(
       preferencesUrl,
       logoUrl,
     }),
+    extraHeaders: listUnsubscribeHeaders(unsubscribeUrl),
     emailType: 'StatusMaintenanceScheduledEmail',
     preview: { incidentUrl },
   })
