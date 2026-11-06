@@ -1,0 +1,19 @@
+import { describe, it, expect } from 'vitest'
+import { render } from '@react-email/components'
+import { MagicLinkEmail } from '../templates/magic-link'
+
+describe('MagicLinkEmail', () => {
+  it('names the workspace being signed in to, in sentence case', async () => {
+    const html = await render(
+      <MagicLinkEmail signInUrl="https://acme.example/verify" code="123456" workspaceName="Acme" />
+    )
+    expect(html).toMatch(/<h1[^>]*>ورود به Acme<\/h1>/)
+    expect(html).toContain('lang="fa"')
+    expect(html).toContain('dir="rtl"')
+  })
+
+  it('says plain Sign in when the workspace has no name', async () => {
+    const html = await render(<MagicLinkEmail signInUrl="https://x.example/v" code="123456" />)
+    expect(html).toMatch(/<h1[^>]*>ورود به کوئک‌بک<\/h1>/)
+  })
+})

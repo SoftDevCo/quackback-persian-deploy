@@ -23,6 +23,10 @@ interface EmailLayoutProps {
    * (no link, no code, no token) pass false so the footer cannot add an anchor.
    */
   showPoweredBy?: boolean
+  /** Language of the email's copy (BCP-47), for screen readers and mail clients. */
+  lang?: string
+  /** Text direction of the copy; `rtl` lays the email out right to left. */
+  dir?: 'ltr' | 'rtl'
 }
 
 /**
@@ -38,17 +42,20 @@ export function EmailLayout({
   children,
   footer,
   showPoweredBy: showPoweredByOverride,
+  lang,
+  dir,
 }: EmailLayoutProps) {
   const fromContext = useEmailShowPoweredBy()
   const showPoweredBy = showPoweredByOverride ?? fromContext
   return (
-    <Html lang="fa" dir="rtl">
+    <Html lang={lang ?? 'fa'} dir={dir ?? 'rtl'}>
       <Head />
       <Preview>{preview}</Preview>
-      <Body style={layout.main}>
+      <Body style={{ ...layout.main, direction: dir ?? 'rtl' }}>
         {/* Wrapper Section provides background color for clients that strip <body> styles */}
         <Section style={{ backgroundColor: colors.background }}>
-          <Container style={layout.container}>
+          {/* dir again here: some clients drop the <html> attributes. */}
+          <Container style={{ ...layout.container, direction: dir ?? 'rtl' }} dir={dir ?? 'rtl'}>
             {/* Logo */}
             <Section style={branding.logoContainer}>
               <Img

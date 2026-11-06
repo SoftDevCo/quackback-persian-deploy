@@ -23,12 +23,13 @@ export function RecoveryCodeUsedEmail({
   occurredAt,
   logoUrl,
 }: RecoveryCodeUsedEmailProps) {
-  const workspaceLabel = workspaceName ? ` for ${workspaceName}` : ''
+  const workspaceLabel = workspaceName ? ` برای ${workspaceName}` : ''
   return (
     <EmailLayout preview={`برای ورود از کد بازیابی استفاده شد${workspaceLabel}`} logoUrl={logoUrl}>
       <Heading style={{ ...typography.h1, textAlign: 'center' }}>از کد بازیابی استفاده شد</Heading>
       <Text style={{ ...typography.text, textAlign: 'center' }}>
-        شخصی با استفاده از یکی از کدهای بازیابی ذخیره‌شده‌ی شما به حساب‌تان وارد شده است{workspaceLabel}.
+        شخصی با استفاده از یکی از کدهای بازیابی ذخیره‌شده‌ی شما به حساب‌تان وارد شده است
+        {workspaceLabel}.
       </Text>
 
       <Section style={{ marginTop: '24px', marginBottom: '24px' }}>
@@ -48,7 +49,8 @@ export function RecoveryCodeUsedEmail({
       </Section>
 
       <Text style={typography.text}>
-        اگر این کار توسط شما انجام شده است، اقدامی لازم نیست. این کد مصرف شده و دوباره قابل استفاده نیست.
+        اگر این کار توسط شما انجام شده است، اقدامی لازم نیست. این کد مصرف شده و دوباره قابل استفاده
+        نیست.
       </Text>
       <Text style={typography.text}>
         اگر شما نبوده‌اید، فوراً وارد حساب شوید و کدهای بازیابی خود را تعویض کنید. شخصی که از کد
@@ -56,8 +58,8 @@ export function RecoveryCodeUsedEmail({
       </Text>
 
       <TransactionalFooter>
-        این ایمیل به دلیل استفاده از یکی از کدهای بازیابی حساب شما ارسال شده است. این هشدارها
-        ضروری هستند و قابل غیرفعال‌کردن نیستند.
+        این ایمیل به دلیل استفاده از یکی از کدهای بازیابی حساب شما ارسال شده است. این هشدارها ضروری
+        هستند و قابل غیرفعال‌کردن نیستند.
       </TransactionalFooter>
     </EmailLayout>
   )

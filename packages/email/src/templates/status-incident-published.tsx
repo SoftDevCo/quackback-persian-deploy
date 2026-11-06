@@ -1,6 +1,7 @@
 import { Button, Heading, Section, Text } from '@react-email/components'
 import { EmailLayout, NotificationFooter } from './email-layout'
 import { typography, button, colors } from './shared-styles'
+import { withLineBreaks } from './line-breaks'
 
 export type IncidentImpact = 'none' | 'minor' | 'major' | 'critical'
 
@@ -16,7 +17,7 @@ interface StatusIncidentPublishedEmailProps {
   impact: IncidentImpact
   /** Humanized incident status, e.g. "Investigating". */
   statusLabel: string
-  /** Plain text of the first update. */
+  /** Plain text of the first update. Its line breaks are kept. */
   body: string
   affectedComponents: AffectedComponent[]
   incidentUrl: string
@@ -75,7 +76,9 @@ export function StatusIncidentPublishedEmail({
     >
       {/* Content */}
       <Heading style={typography.h1}>رخداد جدید گزارش شد</Heading>
-      <Text style={typography.text}>{workspaceName} به‌تازگی صفحه‌ی وضعیت خود را به‌روزرسانی کرده است.</Text>
+      <Text style={typography.text}>
+        {workspaceName} به‌تازگی صفحه‌ی وضعیت خود را به‌روزرسانی کرده است.
+      </Text>
 
       {/* Impact bar */}
       <Section
@@ -120,11 +123,13 @@ export function StatusIncidentPublishedEmail({
           {incidentTitle}
         </Text>
         {body && (
-          <Text style={{ ...typography.textSmall, marginTop: '0', marginBottom: '0' }}>{body}</Text>
+          <Text style={{ ...typography.textSmall, marginTop: '0', marginBottom: '0' }}>
+            {withLineBreaks(body)}
+          </Text>
         )}
       </Section>
 
-      {/* Affected components */}
+      {/* Affected services */}
       {affectedComponents.length > 0 && (
         <Section style={{ marginBottom: '24px' }}>
           <Text
@@ -136,7 +141,7 @@ export function StatusIncidentPublishedEmail({
               marginBottom: '8px',
             }}
           >
-          مؤلفه‌های تحت تأثیر
+            سرویس‌های تحت تأثیر
           </Text>
           {affectedComponents.map((component) => (
             <Text
@@ -160,6 +165,7 @@ export function StatusIncidentPublishedEmail({
       <NotificationFooter
         reason="این ایمیل به این دلیل برای شما ارسال شده که دریافت به‌روزرسانی‌های وضعیت را فعال کرده‌اید."
         unsubscribeUrl={unsubscribeUrl}
+        unsubscribeLabel="لغو اشتراک به‌روزرسانی‌های وضعیت"
         preferencesUrl={preferencesUrl}
       />
     </EmailLayout>

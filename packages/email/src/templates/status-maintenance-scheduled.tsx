@@ -1,6 +1,7 @@
 import { Button, Heading, Section, Text } from '@react-email/components'
 import { EmailLayout, NotificationFooter } from './email-layout'
 import { typography, button } from './shared-styles'
+import { withLineBreaks } from './line-breaks'
 
 const MAINTENANCE_BLUE = '#3b82f6'
 const MAINTENANCE_BLUE_BG = '#eff6ff'
@@ -9,7 +10,7 @@ const MAINTENANCE_BLUE_BORDER = '#bfdbfe'
 interface StatusMaintenanceScheduledEmailProps {
   workspaceName: string
   maintenanceTitle: string
-  /** Plain text description of the maintenance. */
+  /** Plain text description of the maintenance. Its line breaks are kept. */
   body: string
   /** Pre-formatted display string for the start of the maintenance window. */
   startLabel: string
@@ -57,9 +58,10 @@ export function StatusMaintenanceScheduledEmail({
       </Text>
       <Heading style={typography.h1}>{maintenanceTitle}</Heading>
       <Text style={typography.text}>
-        {workspaceName} تعمیر و نگهداری زمان‌بندی‌شده‌ای دارد که ممکن است بر سرویس‌های آن تأثیر بگذارد.
+        {workspaceName} تعمیر و نگهداری زمان‌بندی‌شده‌ای دارد که ممکن است بر سرویس‌های آن تأثیر
+        بگذارد.
       </Text>
-      {body && <Text style={typography.text}>{body}</Text>}
+      {body && <Text style={typography.text}>{withLineBreaks(body)}</Text>}
 
       {/* Maintenance window */}
       <Section
@@ -87,7 +89,7 @@ export function StatusMaintenanceScheduledEmail({
         </Text>
       </Section>
 
-      {/* Affected components */}
+      {/* Affected services */}
       {affectedComponents.length > 0 && (
         <Section style={{ marginBottom: '24px' }}>
           <Text
@@ -98,7 +100,7 @@ export function StatusMaintenanceScheduledEmail({
               marginBottom: '8px',
             }}
           >
-            مؤلفه‌های تحت تأثیر
+            سرویس‌های تحت تأثیر
           </Text>
           <Text style={{ ...typography.textSmall, marginTop: '0', marginBottom: '0' }}>
             {affectedComponents.join(', ')}
@@ -117,6 +119,7 @@ export function StatusMaintenanceScheduledEmail({
       <NotificationFooter
         reason="این ایمیل به این دلیل برای شما ارسال شده که دریافت به‌روزرسانی‌های وضعیت را فعال کرده‌اید."
         unsubscribeUrl={unsubscribeUrl}
+        unsubscribeLabel="لغو اشتراک به‌روزرسانی‌های وضعیت"
         preferencesUrl={preferencesUrl}
       />
     </EmailLayout>
