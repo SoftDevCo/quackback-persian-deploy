@@ -42,6 +42,7 @@ export const Route = createFileRoute('/auth/link-sso')({
 function LinkSsoPage() {
   const { provider, type, next } = Route.useSearch()
   const destination = next ?? '/'
+  const admin = new URL(destination, 'https://example.invalid').pathname.startsWith('/admin')
   const [failed, setFailed] = useState(false)
   const started = useRef(false)
 
@@ -75,24 +76,33 @@ function LinkSsoPage() {
   }, [provider, type, destination])
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
+    <div
+      lang={admin ? 'en' : 'fa'}
+      dir={admin ? 'ltr' : 'rtl'}
+      className="min-h-screen flex items-center justify-center bg-background"
+    >
       <div className="text-center space-y-4 p-8 max-w-md">
         {failed ? (
           <>
             <ExclamationTriangleIcon className="h-12 w-12 text-amber-500 mx-auto" />
-            <p className="text-foreground font-medium">You&apos;re signed in</p>
+            <p className="text-foreground font-medium">
+              {admin ? "You're signed in" : 'شما وارد شده‌اید'}
+            </p>
             <p className="text-sm text-muted-foreground">
-              We couldn&apos;t connect single sign-on automatically, but your email is confirmed —
-              the next time you sign in with SSO it will be linked to this account.
+              {admin
+                ? "We couldn't connect single sign-on automatically, but your email is confirmed — the next time you sign in with SSO it will be linked to this account."
+                : 'اتصال خودکار ورود یکپارچه انجام نشد، اما ایمیل شما تأیید شده است. دفعهٔ بعد که با ورود یکپارچه وارد شوید، به این حساب متصل می‌شود.'}
             </p>
             <a href={destination} className="text-sm font-medium text-primary hover:underline">
-              Continue
+              {admin ? 'Continue' : 'ادامه'}
             </a>
           </>
         ) : (
           <>
             <ArrowPathIcon className="h-12 w-12 animate-spin text-primary mx-auto" />
-            <p className="text-muted-foreground">Connecting single sign-on…</p>
+            <p className="text-muted-foreground">
+              {admin ? 'Connecting single sign-on…' : 'در حال اتصال ورود یکپارچه...'}
+            </p>
           </>
         )}
       </div>

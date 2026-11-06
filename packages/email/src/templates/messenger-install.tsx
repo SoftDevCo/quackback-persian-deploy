@@ -18,24 +18,24 @@ export function MessengerInstallEmail({
 }: MessengerInstallEmailProps) {
   return (
     <EmailLayout
-      preview={`Add ${workspaceName} Messenger to the website`}
+      preview={`افزودن پیام‌رسان ${workspaceName} به وب‌سایت`}
       logoUrl={logoUrl}
       logoAlt={workspaceName}
     >
-      <Heading style={typography.h1}>Add Messenger to the website</Heading>
+      <Heading style={typography.h1}>افزودن پیام‌رسان به وب‌سایت</Heading>
       <Text style={typography.text}>
-        <strong>{senderName}</strong> asked you to put {workspaceName}&apos;s Messenger on the
-        website. Paste this code before the closing body tag on every page.
+        <strong>{senderName}</strong> از شما خواسته است پیام‌رسان {workspaceName} را به وب‌سایت
+        اضافه کنید. این کد را در همهٔ صفحات، پیش از تگ بسته‌شدن body قرار دهید.
       </Text>
       <Section style={codeBlock}>
         <Text style={codeText}>{snippet}</Text>
       </Section>
       <Text style={typography.textSmall}>
-        Using Google Tag Manager? Create a Custom HTML tag with the same code and trigger it on All
-        pages.
+        اگر از Google Tag Manager استفاده می‌کنید، یک تگ Custom HTML با همین کد بسازید و آن را برای
+        همهٔ صفحات فعال کنید.
       </Text>
       <TransactionalFooter>
-        {senderName} will see Messenger connect as soon as it loads on the site.
+        پس از بارگذاری پیام‌رسان در سایت، اتصال آن برای {senderName} نمایش داده می‌شود.
       </TransactionalFooter>
     </EmailLayout>
   )
@@ -54,5 +54,7 @@ const codeText = {
   fontSize: '12px',
   lineHeight: '18px',
   whiteSpace: 'pre-wrap' as const,
+  direction: 'ltr' as const,
+  textAlign: 'left' as const,
   margin: '0',
 }

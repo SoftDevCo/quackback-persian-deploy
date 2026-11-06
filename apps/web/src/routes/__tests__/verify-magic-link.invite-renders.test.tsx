@@ -33,8 +33,16 @@ afterEach(cleanup)
 it('keeps the invitation page to the workspace, the inviter and the one action', async () => {
   const Page = (Route as unknown as { options: { component: ComponentType } }).options.component
   render(<Page />)
-  expect(await screen.findByText('Sam invited you to join Acme.')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Accept invitation' })).toBeInTheDocument()
+  expect(await screen.findByText('Sam از شما دعوت کرده است به Acme بپیوندید.')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'پذیرش دعوت‌نامه' })).toBeInTheDocument()
   expect(screen.queryByText('AI-powered insights')).toBeNull()
   expect(screen.queryByText('24 integrations')).toBeNull()
+})
+
+it('keeps admin-directed verification in English', async () => {
+  search.callbackURL = '/admin/accept-invitation'
+  const Page = (Route as unknown as { options: { component: ComponentType } }).options.component
+  render(<Page />)
+  expect(await screen.findByText('Sam invited you to join Acme.')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Accept invitation' })).toBeInTheDocument()
 })

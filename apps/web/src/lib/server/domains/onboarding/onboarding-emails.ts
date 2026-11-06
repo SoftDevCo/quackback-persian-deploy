@@ -2,7 +2,7 @@
  * The two setup emails: the one "workspace is ready" email when a new
  * workspace's owner first lands, naming the link to share and the next step on
  * their goal path, and one nudge on day two if the first real result has not
- * happened. Both are written in the owner's language, go only inside the
+ * happened. Both are written in Persian, go only inside the
  * launch window, never to an established workspace after an upgrade, never to
  * someone who muted email or stopped setup tips, and never twice: the
  * `onboarding_emails` row is claimed before sending.
@@ -41,7 +41,7 @@ import { detectFirstWin } from '@/lib/server/activation-wins'
 import { getCloudConfig } from '@/lib/server/domains/settings/cloud/cloud.service'
 import { PLAN_CATALOGUE } from '@/lib/server/domains/settings/cloud/cloud.types'
 import { sendOnboardingNudgeEmail, sendOnboardingWelcomeEmail } from '@quackback/email'
-import type { SupportedLocale } from '@/lib/shared/i18n'
+import { PERSIAN_DEFAULT_LOCALE, type SupportedLocale } from '@/lib/shared/i18n'
 import type { OnboardingOutcome } from '@/lib/shared/db-types'
 import {
   nudgeEmailCopy,
@@ -288,7 +288,7 @@ async function deliver(
   const root = base.replace(/\/$/, '')
   const next = context.tasks[0]
   const common = {
-    locale: context.locale,
+    locale: PERSIAN_DEFAULT_LOCALE,
     name: context.name,
     workspaceName: context.workspaceName,
     goal: primaryGoal(context.status),

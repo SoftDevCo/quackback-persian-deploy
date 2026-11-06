@@ -121,7 +121,7 @@ export function VoteButton({
     return (
       <div
         data-testid="vote-button"
-        aria-label={`${displayCount} votes`}
+        aria-label={`${intl.formatNumber(displayCount)} ${intl.formatMessage({ id: 'common.userStats.votes', defaultMessage: 'Votes' })}`}
         className={sharedClassName}
       >
         {chevron}

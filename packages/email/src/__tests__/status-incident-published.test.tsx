@@ -14,6 +14,12 @@ const incident = {
 }
 
 describe('StatusIncidentPublishedEmail', () => {
+  it('translates standard incident and affected service statuses', async () => {
+    const html = await render(<StatusIncidentPublishedEmail {...incident} body="" />)
+    expect(html).toContain('در حال بررسی')
+    expect(html).toContain('قطعی جزئی')
+    expect(html).not.toContain('Partial outage')
+  })
   it('keeps the line breaks the update was written with', async () => {
     const html = await render(
       <StatusIncidentPublishedEmail

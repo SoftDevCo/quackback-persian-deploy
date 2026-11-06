@@ -122,8 +122,8 @@ export const Route = createFileRoute('/_portal/')({
   head: ({ loaderData }) => {
     if (!loaderData) return {}
     const { workspaceName, baseUrl } = loaderData
-    const title = `Feedback - ${workspaceName}`
-    const description = `Submit and vote on feature requests for ${workspaceName}. Help shape what gets built next.`
+    const title = `پیشنهادها - ${workspaceName}`
+    const description = `پیشنهادهای خود را برای ${workspaceName} ثبت کنید و به ایده‌های دیگران رأی دهید.`
     return {
       meta: [
         { title },

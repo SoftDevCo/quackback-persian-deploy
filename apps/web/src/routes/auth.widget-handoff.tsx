@@ -371,11 +371,11 @@ function WidgetHandoffErrorPage() {
   return (
     <PageShell>
       <Card>
-        <h1 className="text-xl font-semibold tracking-tight">Sign-in link expired</h1>
+        <h1 className="text-xl font-semibold tracking-tight">اعتبار پیوند ورود پایان یافته است</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           {data.status === 'error'
-            ? 'Something went wrong while processing your sign-in link. Please reopen the widget and try again.'
-            : 'This sign-in link has expired or has already been used. Please reopen the widget to get a new link.'}
+            ? 'پردازش پیوند ورود ناموفق بود. ابزارک را دوباره باز کنید و تلاش کنید.'
+            : 'اعتبار این پیوند ورود پایان یافته یا قبلاً استفاده شده است. برای دریافت پیوند جدید ابزارک را دوباره باز کنید.'}
         </p>
       </Card>
     </PageShell>
@@ -388,7 +388,11 @@ function WidgetHandoffErrorPage() {
 
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-background overflow-hidden px-4">
+    <div
+      lang="fa"
+      dir="rtl"
+      className="relative flex min-h-screen items-center justify-center bg-background overflow-hidden px-4"
+    >
       <div
         className="pointer-events-none absolute inset-0 opacity-[0.04] dark:opacity-[0.07]"
         style={{

@@ -3,6 +3,7 @@ import { AreaMessages } from '@/components/shared/area-messages'
 import { PortalIntlProvider } from '@/components/portal-intl-provider'
 import { DeviceApproval } from '@/components/device/device-approval'
 import { buildSigninRedirect } from '@/lib/shared/auth-prompt'
+import { PERSIAN_DEFAULT_LOCALE } from '@/lib/shared/i18n'
 
 /**
  * The verification page for the OAuth device authorization grant (RFC 8628):
@@ -25,9 +26,9 @@ export const Route = createFileRoute('/device')({
   },
   // The loader's work lives in a lazy module: this route's options ride in the
   // entry bundle every page loads, and only the device page needs the rest.
-  loader: async ({ context }) => {
+  loader: async () => {
     const { loadDeviceMessages } = await import('@/components/device/device-messages')
-    return loadDeviceMessages(context.acceptLanguageLocale)
+    return loadDeviceMessages(PERSIAN_DEFAULT_LOCALE)
   },
   component: DeviceRoute,
 })
@@ -38,15 +39,17 @@ function DeviceRoute() {
   const navigate = useNavigate()
   return (
     <PortalIntlProvider locale={locale} messages={shared}>
-      <meta name="robots" content="noindex" />
-      <AreaMessages area="deviceSignIn" messages={messages}>
-        <DeviceApproval
-          userCode={user_code}
-          onCode={(code) =>
-            void navigate({ to: '/device', search: code ? { user_code: code } : {} })
-          }
-        />
-      </AreaMessages>
+      <div lang="fa" dir="rtl">
+        <meta name="robots" content="noindex" />
+        <AreaMessages area="deviceSignIn" messages={messages}>
+          <DeviceApproval
+            userCode={user_code}
+            onCode={(code) =>
+              void navigate({ to: '/device', search: code ? { user_code: code } : {} })
+            }
+          />
+        </AreaMessages>
+      </div>
     </PortalIntlProvider>
   )
 }

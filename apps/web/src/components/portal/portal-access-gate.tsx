@@ -41,7 +41,7 @@ import { signOut } from '@/lib/client/auth-client'
 import { isSafeCallbackUrl } from '@/lib/shared/routing'
 import { navigateAfterAuth } from '@/lib/client/post-auth-navigation'
 import { PortalIntlProvider } from '@/components/portal-intl-provider'
-import { DEFAULT_LOCALE } from '@/lib/shared/i18n'
+import { PERSIAN_DEFAULT_LOCALE } from '@/lib/shared/i18n'
 import type { PortalAccessGateError } from '@/lib/shared/types/portal-gate-error'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -142,6 +142,65 @@ const MOCK_POSTS: Array<{
   },
 ]
 
+// The backdrop is decorative and never contains real workspace data. Keep its
+// sample text Persian on the Persian portal while preserving the upstream
+// English examples for other locales.
+const PERSIAN_BACKDROP: Record<string, string> = {
+  Feedback: 'بازخورد',
+  Roadmap: 'نقشه راه',
+  Changelog: 'تغییرات',
+  Trending: 'پرطرفدار',
+  Top: 'برترین',
+  New: 'جدید',
+  'All posts': 'همه نوشته‌ها',
+  'Feature Requests': 'درخواست قابلیت',
+  'Bug Reports': 'گزارش خطا',
+  Integrations: 'اتصال‌ها',
+  'Suggest a feature or report a bug…': 'قابلیتی پیشنهاد کنید یا خطایی گزارش دهید…',
+  Search: 'جست‌وجو',
+  Filter: 'فیلتر',
+  Boards: 'تابلوها',
+  'Dark mode for the dashboard': 'حالت تاریک برای داشبورد',
+  'A proper dark theme would make late-night sessions far easier on the eyes.':
+    'یک پوسته تاریک مناسب، کار در شب را برای چشم آسان‌تر می‌کند.',
+  'Bulk export to CSV': 'خروجی گروهی به CSV',
+  'Let admins export filtered results to a spreadsheet in one click.':
+    'امکان خروجی گرفتن از نتایج فیلترشده با یک کلیک فراهم شود.',
+  'Slack notifications for new replies': 'اعلان پاسخ‌های جدید در Slack',
+  'Ping a channel whenever a teammate responds so nothing slips through.':
+    'با پاسخ اعضای تیم به کانال اطلاع داده شود تا چیزی از قلم نیفتد.',
+  'Keyboard shortcuts for navigation': 'میانبرهای صفحه‌کلید برای پیمایش',
+  'Power users want to move between views without reaching for the mouse.':
+    'کاربران بتوانند بدون استفاده از ماوس میان بخش‌ها جابه‌جا شوند.',
+  'Custom domains for portals': 'دامنه اختصاصی برای پورتال',
+  'Host the feedback portal on our own subdomain for a seamless brand.':
+    'پورتال بازخورد روی زیردامنه اختصاصی مجموعه میزبانی شود.',
+  'Mobile apps for iOS and Android': 'برنامه موبایل برای iOS و Android',
+  'Triage and reply to feedback on the go from a native app.':
+    'بررسی و پاسخ به بازخوردها در برنامه موبایل امکان‌پذیر باشد.',
+  Planned: 'برنامه‌ریزی‌شده',
+  'In Progress': 'در حال انجام',
+  'Under Review': 'در حال بررسی',
+  ui: 'رابط کاربری',
+  accessibility: 'دسترس‌پذیری',
+  export: 'خروجی',
+  integrations: 'اتصال‌ها',
+  ux: 'تجربه کاربری',
+  branding: 'برند',
+  mobile: 'موبایل',
+  'Alex M.': 'علی',
+  'Jordan P.': 'مینا',
+  'Sam R.': 'سارا',
+  'Riley K.': 'رضا',
+  'Casey T.': 'نگار',
+  'Morgan L.': 'امیر',
+  '2d': '۲ روز پیش',
+  '4d': '۴ روز پیش',
+  '1w': '۱ هفته پیش',
+  '2w': '۲ هفته پیش',
+  '3w': '۳ هفته پیش',
+}
+
 /** A purely fake feedback board that mirrors the real portal layout — header,
  *  nav, toolbar, post cards, and board sidebar — rendered from {@link MOCK_POSTS}
  *  and friends. No real content is ever loaded. Every element is a plain,
@@ -154,6 +213,9 @@ function DecorativeBackdrop({
   workspaceName: string
   logoUrl: string | null
 }) {
+  const intl = useIntl()
+  const localize = (text: string) =>
+    intl.locale.toLowerCase().startsWith('fa') ? (PERSIAN_BACKDROP[text] ?? text) : text
   return (
     <div className="min-h-screen bg-background select-none pointer-events-none">
       {/* Header */}
@@ -186,7 +248,7 @@ function DecorativeBackdrop({
                   i === 0 ? 'bg-muted text-foreground' : 'text-muted-foreground'
                 }`}
               >
-                {label}
+                {localize(label)}
               </div>
             ))}
           </div>
@@ -201,7 +263,7 @@ function DecorativeBackdrop({
             {/* Faux submission box */}
             <div className="rounded-lg border border-border/40 bg-card p-4">
               <div className="flex h-9 items-center rounded-md border border-border/50 bg-muted/30 px-3 text-sm text-muted-foreground/50">
-                Suggest a feature or report a bug…
+                {localize('Suggest a feature or report a bug…')}
               </div>
             </div>
 
@@ -216,18 +278,18 @@ function DecorativeBackdrop({
                     }`}
                   >
                     <Icon className={`h-4 w-4 ${i === 0 ? 'text-primary' : ''}`} />
-                    {label}
+                    {localize(label)}
                   </div>
                 ))}
               </div>
               <div className="flex items-center gap-2">
                 <div className="inline-flex items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-sm text-muted-foreground">
                   <MagnifyingGlassIcon className="h-4 w-4" />
-                  <span className="hidden sm:inline">Search</span>
+                  <span className="hidden sm:inline">{localize('Search')}</span>
                 </div>
                 <div className="inline-flex items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-sm text-muted-foreground">
                   <FunnelIcon className="h-4 w-4" />
-                  <span className="hidden sm:inline">Filter</span>
+                  <span className="hidden sm:inline">{localize('Filter')}</span>
                 </div>
               </div>
             </div>
@@ -255,14 +317,14 @@ function DecorativeBackdrop({
                           className="size-1.5 shrink-0 rounded-full"
                           style={{ backgroundColor: post.status.color }}
                         />
-                        {post.status.label}
+                        {localize(post.status.label)}
                       </div>
                     )}
                     <div className="line-clamp-1 text-base font-semibold text-foreground">
-                      {post.title}
+                      {localize(post.title)}
                     </div>
                     <div className="mt-1 line-clamp-1 text-sm text-muted-foreground/60">
-                      {post.excerpt}
+                      {localize(post.excerpt)}
                     </div>
                     <div className="mt-1.5 flex items-center gap-1">
                       {post.tags.map((tag) => (
@@ -270,15 +332,15 @@ function DecorativeBackdrop({
                           key={tag}
                           className="inline-flex items-center rounded bg-muted px-1.5 text-xs font-medium text-muted-foreground"
                         >
-                          {tag}
+                          {localize(tag)}
                         </span>
                       ))}
                     </div>
                     <div className="mt-2.5 flex items-center gap-2 text-xs text-muted-foreground">
                       <span className="h-5 w-5 rounded-full bg-muted" />
-                      <span className="text-foreground/80">{post.author}</span>
+                      <span className="text-foreground/80">{localize(post.author)}</span>
                       <span className="text-muted-foreground/40">·</span>
-                      <span className="text-muted-foreground/70">{post.when}</span>
+                      <span className="text-muted-foreground/70">{localize(post.when)}</span>
                       <span className="ms-auto flex items-center gap-1 text-muted-foreground/50">
                         <ChatBubbleLeftIcon className="h-3.5 w-3.5" />
                         {post.comments}
@@ -294,7 +356,7 @@ function DecorativeBackdrop({
           <div className="hidden w-64 shrink-0 lg:block">
             <div className="overflow-hidden rounded-lg border border-border/50 bg-card shadow-sm">
               <div className="px-4 pb-3 pt-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Boards
+                {localize('Boards')}
               </div>
               <div className="space-y-1 px-4 pb-4">
                 {MOCK_BOARDS.map((board, i) => (
@@ -309,7 +371,7 @@ function DecorativeBackdrop({
                     ) : (
                       <ChatBubbleLeftIcon className="h-4 w-4" />
                     )}
-                    <span className="truncate">{board.name}</span>
+                    <span className="truncate">{localize(board.name)}</span>
                     <span className="ms-auto text-xs font-semibold tabular-nums">
                       {board.count}
                     </span>
@@ -576,7 +638,7 @@ export function PortalAccessGate({
     // provider — without it <FormattedMessage> has no context and crashes.
     // No SSR catalog here (the error path has no loader data); useIntlSetup
     // fetches it client-side, which lands well before the form needs it.
-    <PortalIntlProvider locale={locale ?? DEFAULT_LOCALE}>
+    <PortalIntlProvider locale={locale ?? PERSIAN_DEFAULT_LOCALE}>
       <div className="relative min-h-screen">
         {/* Theme/custom CSS injected here too so the backdrop looks branded */}
         {themeStyles && (

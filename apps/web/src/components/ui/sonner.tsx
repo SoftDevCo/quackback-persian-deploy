@@ -20,6 +20,7 @@ const REGION_LABEL: Record<SupportedLocale, string> = {
   fr: 'Notifications',
   es: 'Notificaciones',
   ar: 'الإشعارات',
+  fa: 'اعلان‌ها',
   ru: 'Уведомления',
   'pt-br': 'Notificações',
   'zh-cn': '通知',

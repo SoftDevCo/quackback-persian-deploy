@@ -728,7 +728,7 @@ export async function sendMessengerInstallEmail(params: {
   const { to, senderName, workspaceName, snippet, logoUrl } = params
   return sendEmail({
     to,
-    subject: `Add ${workspaceName} Messenger to the website`,
+    subject: `افزودن پیام‌رسان ${workspaceName} به وب‌سایت`,
     react: MessengerInstallEmail({ senderName, workspaceName, snippet, logoUrl }),
     emailType: 'MessengerInstallEmail',
     preview: { workspaceName },
@@ -975,7 +975,7 @@ export async function sendSendingDomainAttentionEmail(
   log.debug('sending sending-domain attention alert')
   return sendEmail({
     to,
-    subject: `Sending from ${domain} needs attention`,
+    subject: `ارسال ایمیل از ${domain} نیاز به بررسی دارد`,
     react: SendingDomainAttentionEmail({ domain, record, settingsUrl, workspaceName, logoUrl }),
     emailType: 'SendingDomainAttentionEmail',
     preview: { domain },

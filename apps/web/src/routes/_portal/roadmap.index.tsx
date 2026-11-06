@@ -41,8 +41,8 @@ export const Route = createFileRoute('/_portal/roadmap/')({
   head: ({ loaderData }) => {
     if (!loaderData) return {}
     const { workspaceName, baseUrl } = loaderData
-    const title = `Roadmap - ${workspaceName}`
-    const description = `See what ${workspaceName} is working on and what's coming next.`
+    const title = `نقشه راه - ${workspaceName}`
+    const description = `کارهای در دست انجام و برنامه‌های آیندهٔ ${workspaceName} را ببینید.`
     const canonicalUrl = baseUrl ? `${baseUrl}/roadmap` : ''
     return {
       meta: [

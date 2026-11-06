@@ -11,7 +11,6 @@ function visibleText(html: string): string {
     .replace(/<[^>]*>/g, ' ')
     .replace(/&#x27;/g, "'")
     .replace(/&quot;/g, '"')
-    .replace(/[^\x20-\x7e]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -21,7 +20,7 @@ describe('SendingDomainAttentionEmail', () => {
     const text = visibleText(
       await render(SendingDomainAttentionEmail({ domain: 'acme.com', record: 'signing-key' }))
     )
-    expect(text).toContain("The signing key for acme.com isn't working.")
+    expect(text).toContain('کلید امضای دامنهٔ acme.com کار نمی‌کند.')
   })
 
   it('names the domain and the record that is missing', async () => {
@@ -39,10 +38,10 @@ describe('SendingDomainAttentionEmail', () => {
         })
       )
     )
-    expect(text).toContain('Sending from acme.com needs attention')
-    expect(text).toContain('The return path record (MX qb-bounce.acme.com) is missing.')
-    expect(text).toContain('Replies send from the default address until it is fixed.')
-    expect(text).toContain('to see every record and verify.')
+    expect(text).toContain('ارسال ایمیل از acme.com نیاز به بررسی دارد')
+    expect(text).toContain('رکورد مسیر بازگشت (MX qb-bounce.acme.com) وجود ندارد.')
+    expect(text).toContain('تا زمان رفع مشکل، پاسخ‌ها از نشانی پیش‌فرض ارسال می‌شوند.')
+    expect(text).toContain('تا همهٔ رکوردها را ببینید و تأیید کنید.')
   })
 
   it('says what was found instead when the value is wrong', async () => {
@@ -61,7 +60,7 @@ describe('SendingDomainAttentionEmail', () => {
       )
     )
     expect(text).toContain(
-      'The ownership record (TXT _quackback.acme.com) has a different value: quackback-domain-verification=old.'
+      'مقدار رکورد مالکیت (TXT _quackback.acme.com) متفاوت است: quackback-domain-verification=old.'
     )
   })
 
@@ -80,13 +79,13 @@ describe('SendingDomainAttentionEmail', () => {
       )
     )
     expect(text).toContain(
-      'The DKIM record (CNAME tok._domainkey.acme.com) is proxied. Turn off any proxy for it.'
+      'رکورد DKIM (CNAME tok._domainkey.acme.com) از پراکسی عبور می‌کند. پراکسی آن را غیرفعال کنید.'
     )
   })
 
   it('falls back to the provider when every record still looks right', async () => {
     const text = visibleText(await render(SendingDomainAttentionEmail({ domain: 'acme.com' })))
-    expect(text).toContain('The mail provider stopped confirming acme.com.')
+    expect(text).toContain('ارائه‌دهندهٔ ایمیل دیگر دامنهٔ acme.com را تأیید نمی‌کند.')
   })
 
   it('links to the settings page when given one', async () => {
@@ -105,8 +104,11 @@ describe('SendingDomainAttentionEmail', () => {
   })
 
   it.each([
-    ['truncated', 'The DKIM record (TXT qb1._domainkey.acme.com) was cut short by your DNS host.'],
-    ['quoted', 'The DKIM record (TXT qb1._domainkey.acme.com) has quote marks saved in its value.'],
+    ['truncated', 'مقدار رکورد DKIM (TXT qb1._domainkey.acme.com) توسط میزبان DNS کوتاه شده است.'],
+    [
+      'quoted',
+      'مقدار رکورد DKIM (TXT qb1._domainkey.acme.com) همراه با علامت نقل‌قول ذخیره شده است.',
+    ],
   ] as const)('names a value the DNS host mangled (%s)', async (reason, sentence) => {
     const text = visibleText(
       await render(

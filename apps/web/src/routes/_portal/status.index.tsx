@@ -53,8 +53,8 @@ export const Route = createFileRoute('/_portal/status/')({
   head: ({ loaderData }) => {
     if (!loaderData) return {}
     const { workspaceName, baseUrl } = loaderData
-    const title = `Status - ${workspaceName}`
-    const description = `Live status and incident history for ${workspaceName}.`
+    const title = `وضعیت - ${workspaceName}`
+    const description = `وضعیت فعلی و سابقهٔ اختلال‌های ${workspaceName}.`
     const canonicalUrl = baseUrl ? `${baseUrl}/status` : ''
     return {
       meta: [

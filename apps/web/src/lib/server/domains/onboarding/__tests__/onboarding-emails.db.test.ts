@@ -108,9 +108,9 @@ describe.skipIf(!fixture.available)('setup emails (real DB)', () => {
       cta: { url: string }
       unsubscribeUrl: string
     }
-    expect(params.subject).toBe('Acme is ready, Sam')
-    expect(params.lang).toBe('en')
-    expect(params.paragraphs).toContain('Your next step: Put Messenger on your site.')
+    expect(params.subject).toBe('Sam، Acme آماده است')
+    expect(params.lang).toBe('fa')
+    expect(params.paragraphs).toContain('گام بعدی شما: افزودن پیام‌رسان به سایت.')
     expect(params.cta.url).toBe('https://acme.quackback.test/admin')
     expect(params.unsubscribeUrl).toMatch(/^https:\/\/acme\.quackback\.test\/unsubscribe\?token=/)
 
@@ -168,9 +168,9 @@ describe.skipIf(!fixture.available)('setup emails (real DB)', () => {
   it('nudges once on day two with the next step, unless the first result has happened', async () => {
     expect(await sendOnboardingEmail('nudge', owner)).toEqual({ sent: true })
     expect(mail.nudge.mock.calls[0][0]).toMatchObject({
-      subject: 'Your next step in Acme',
+      subject: 'گام بعدی شما در Acme',
       cta: {
-        label: 'Put Messenger on your site',
+        label: 'افزودن پیام‌رسان به سایت',
         url: 'https://acme.quackback.test/admin/settings/widget/install',
       },
       secondary: null,
@@ -211,7 +211,7 @@ describe.skipIf(!fixture.available)('setup emails (real DB)', () => {
     })
     expect(await sendOnboardingEmail('nudge', owner)).toEqual({ sent: true })
     expect(mail.nudge.mock.calls[0][0]).toMatchObject({
-      cta: { label: 'A customer creates a post', url: 'https://acme.quackback.test/admin' },
+      cta: { label: 'مشتری یک نوشته ثبت می‌کند', url: 'https://acme.quackback.test/admin' },
     })
   })
 
@@ -244,7 +244,7 @@ describe.skipIf(!fixture.available)('setup emails (real DB)', () => {
       share: { url: string; text: string } | null
     }
     expect(params.paragraphs).toContain(
-      'One step gets you to your first customer post: share the link.'
+      'برای دریافت نخستین نوشتهٔ مشتری، پیوند را به اشتراک بگذارید.'
     )
     expect(params.share).toMatchObject({
       url: 'https://acme.quackback.test/',
@@ -259,21 +259,21 @@ describe.skipIf(!fixture.available)('setup emails (real DB)', () => {
       await seedWorkspace({ goals: [goal], featureFlags: {} })
       expect(await sendOnboardingEmail('welcome', owner)).toEqual({ sent: true })
       const params = mail.welcome.mock.calls[0][0] as { paragraphs: string[] }
-      expect(params.paragraphs).toContain('Your next step: Create a feedback board.')
+      expect(params.paragraphs).toContain('گام بعدی شما: ایجاد تابلوی بازخورد.')
     }
   })
 
-  it('writes in the language the owner chose, else the one their browser asked for', async () => {
+  it('writes setup emails in Persian regardless of owner or browser language', async () => {
     expect(await sendOnboardingEmail('welcome', owner, new Date(), 'ar')).toEqual({ sent: true })
-    expect(mail.welcome.mock.calls[0][0]).toMatchObject({ lang: 'ar', dir: 'rtl' })
+    expect(mail.welcome.mock.calls[0][0]).toMatchObject({ lang: 'fa', dir: 'rtl' })
 
     await testDb.delete(onboardingEmails)
     const [row] = await testDb.select().from(principal).where(eq(principal.id, owner))
     await testDb.update(user).set({ preferredLanguage: 'de' }).where(eq(user.id, row.userId!))
     expect(await sendOnboardingEmail('welcome', owner, new Date(), 'ar')).toEqual({ sent: true })
-    const german = mail.welcome.mock.calls[1][0] as { lang: string; subject: string }
-    expect(german.lang).toBe('de')
-    expect(german.subject).not.toBe('Acme is ready, Sam')
+    const persian = mail.welcome.mock.calls[1][0] as { lang: string; subject: string }
+    expect(persian.lang).toBe('fa')
+    expect(persian.subject).toBe('Sam، Acme آماده است')
   })
 
   it('carries the browser language from the first landing into the queued jobs', async () => {

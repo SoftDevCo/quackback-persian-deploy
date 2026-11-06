@@ -13,6 +13,7 @@ describe('documentLocale', () => {
     expect(documentLocale(['__root__', '/auth/reset-password'], 'zh-cn')).toBe('zh-cn')
     expect(documentLocale(['__root__', '/widget'], 'ar')).toBe('ar')
     expect(documentLocale(['__root__', '/unsubscribe'], 'ar')).toBe('ar')
+    expect(documentLocale(['__root__', '/device'], 'fa')).toBe('fa')
   })
   it('localizes the AI & Automation pages under settings and the workflow builder', () => {
     for (const id of [

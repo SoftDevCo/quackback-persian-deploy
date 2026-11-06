@@ -279,7 +279,7 @@ function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
   const hasPersianUi =
     routeIds.includes('/_portal') ||
     routeIds.some((id) =>
-      ['/auth/recovery', '/auth/reset-password', '/widget', '/unsubscribe'].includes(id)
+      ['/auth/recovery', '/auth/reset-password', '/widget', '/unsubscribe', '/device'].includes(id)
     )
   const resolvedLocale =
     widgetOverride ??

@@ -42,6 +42,7 @@ function renderGate() {
       themeStyles=""
       customCss=""
       userEmail={null}
+      locale="en"
     />
   )
 }
@@ -64,5 +65,24 @@ describe('PortalAccessGate — IntlProvider regression', () => {
     // The form is shown directly — no intermediate "Sign in / Register" button.
     expect(screen.getByTestId('auth-form-body')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /sign in \/ register/i })).not.toBeInTheDocument()
+  })
+
+  it('renders the decorative board in Persian when no locale is provided', () => {
+    render(
+      <PortalAccessGate
+        reason="unauthenticated"
+        workspaceName="Acme Corp"
+        logoUrl={null}
+        authConfig={authConfig}
+        themeStyles=""
+        customCss=""
+        userEmail={null}
+      />
+    )
+    expect(screen.getByTestId('portal-gate-backdrop')).toHaveTextContent('جست‌وجو')
+    expect(screen.getByTestId('portal-gate-backdrop')).toHaveTextContent('حالت تاریک برای داشبورد')
+    expect(screen.getByTestId('portal-gate-backdrop')).not.toHaveTextContent(
+      'Dark mode for the dashboard'
+    )
   })
 })

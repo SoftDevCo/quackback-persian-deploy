@@ -49,6 +49,11 @@ function localizeStatusLabel(status: string): string {
     resolved: 'برطرف‌شده',
     scheduled: 'زمان‌بندی‌شده',
     in_progress: 'در حال انجام',
+    operational: 'عملیاتی',
+    degraded_performance: 'کاهش عملکرد',
+    partial_outage: 'قطعی جزئی',
+    major_outage: 'قطعی گسترده',
+    under_maintenance: 'در حال تعمیر و نگهداری',
   }
   return labels[key] ?? status
 }
@@ -148,7 +153,7 @@ export function StatusIncidentPublishedEmail({
               key={component.name}
               style={{ ...typography.textSmall, marginTop: '0', marginBottom: '4px' }}
             >
-              <strong>{component.name}:</strong> {component.status}
+              <strong>{component.name}:</strong> {localizeStatusLabel(component.status)}
             </Text>
           ))}
         </Section>

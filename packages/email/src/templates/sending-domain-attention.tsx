@@ -32,9 +32,9 @@ export interface SendingDomainAttentionEmailProps {
 }
 
 const PURPOSE_LABEL: Record<SendingDomainAttentionRecord['purpose'], string> = {
-  ownership: 'ownership record',
-  dkim: 'DKIM record',
-  'mail-from': 'return path record',
+  ownership: 'رکورد مالکیت',
+  dkim: 'رکورد DKIM',
+  'mail-from': 'رکورد مسیر بازگشت',
 }
 
 /** One sentence naming the record and what is wrong with it. */
@@ -42,18 +42,17 @@ export function sendingDomainProblem(
   domain: string,
   record: SendingDomainAttentionProblem | null | undefined
 ): string {
-  if (!record) return `The mail provider stopped confirming ${domain}.`
-  if (record === 'signing-key') return `The signing key for ${domain} isn't working.`
-  const named = `The ${PURPOSE_LABEL[record.purpose]} (${record.type} ${record.name})`
-  if (record.state === 'proxied') return `${named} is proxied. Turn off any proxy for it.`
+  if (!record) return `ارائه‌دهندهٔ ایمیل دیگر دامنهٔ ${domain} را تأیید نمی‌کند.`
+  if (record === 'signing-key') return `کلید امضای دامنهٔ ${domain} کار نمی‌کند.`
+  const named = `${PURPOSE_LABEL[record.purpose]} (${record.type} ${record.name})`
+  if (record.state === 'proxied')
+    return `${named} از پراکسی عبور می‌کند. پراکسی آن را غیرفعال کنید.`
   if (record.state === 'mismatch') {
-    if (record.reason === 'truncated') return `${named} was cut short by your DNS host.`
-    if (record.reason === 'quoted') return `${named} has quote marks saved in its value.`
-    return record.seen
-      ? `${named} has a different value: ${record.seen}.`
-      : `${named} has a different value.`
+    if (record.reason === 'truncated') return `مقدار ${named} توسط میزبان DNS کوتاه شده است.`
+    if (record.reason === 'quoted') return `مقدار ${named} همراه با علامت نقل‌قول ذخیره شده است.`
+    return record.seen ? `مقدار ${named} متفاوت است: ${record.seen}.` : `مقدار ${named} متفاوت است.`
   }
-  return `${named} is missing.`
+  return `${named} وجود ندارد.`
 }
 
 /**
@@ -68,23 +67,23 @@ export function SendingDomainAttentionEmail({
   workspaceName,
   logoUrl,
 }: SendingDomainAttentionEmailProps) {
-  const title = `Sending from ${domain} needs attention`
+  const title = `ارسال ایمیل از ${domain} نیاز به بررسی دارد`
   return (
     <EmailLayout preview={title} logoUrl={logoUrl}>
       <Heading style={typography.h1}>{title}</Heading>
       <Text style={typography.text}>{sendingDomainProblem(domain, record)}</Text>
-      <Text style={typography.text}>Replies send from the default address until it is fixed.</Text>
+      <Text style={typography.text}>تا زمان رفع مشکل، پاسخ‌ها از نشانی پیش‌فرض ارسال می‌شوند.</Text>
       {settingsUrl ? (
         <Text style={typography.text}>
           <Link href={settingsUrl} style={utils.link}>
-            Open email settings
+            تنظیمات ایمیل را باز کنید
           </Link>{' '}
-          to see every record and verify.
+          تا همهٔ رکوردها را ببینید و تأیید کنید.
         </Text>
       ) : null}
       <TransactionalFooter>
-        You&apos;re receiving this because you manage email channels
-        {workspaceName ? ` for ${workspaceName}` : ''}.
+        این ایمیل را دریافت کرده‌اید چون کانال‌های ایمیل{workspaceName ? ` ${workspaceName}` : ''}{' '}
+        را مدیریت می‌کنید.
       </TransactionalFooter>
     </EmailLayout>
   )

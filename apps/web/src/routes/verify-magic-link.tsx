@@ -23,19 +23,29 @@ export const Route = createFileRoute('/verify-magic-link')({
 
 function VerifyMagicLinkPage() {
   const { token, callbackURL, errorCallbackURL } = Route.useSearch()
+  const admin = [callbackURL, errorCallbackURL].some((url) => {
+    try {
+      return url ? new URL(url, 'https://example.invalid').pathname.startsWith('/admin') : false
+    } catch {
+      return false
+    }
+  })
 
   if (!token) {
     return (
-      <PageShell>
+      <PageShell admin={admin}>
         <Card>
-          <div className="text-destructive text-xl font-medium tracking-tight">Invalid link</div>
+          <div className="text-destructive text-xl font-medium tracking-tight">
+            {admin ? 'Invalid link' : 'پیوند نامعتبر است'}
+          </div>
           <p className="mt-2 text-muted-foreground">
-            This verification link is invalid or incomplete. Please check the link in your email and
-            try again.
+            {admin
+              ? 'This verification link is invalid or incomplete. Please check the link in your email and try again.'
+              : 'این پیوند تأیید نامعتبر یا ناقص است. پیوند ایمیل خود را بررسی کنید و دوباره تلاش کنید.'}
           </p>
           <a href="/" className="mt-6 block">
             <Button variant="outline" className="w-full h-11">
-              Go to Home
+              {admin ? 'Go to Home' : 'بازگشت به صفحهٔ اصلی'}
             </Button>
           </a>
         </Card>
@@ -52,6 +62,7 @@ function VerifyMagicLinkPage() {
         callbackURL={callbackURL}
         errorCallbackURL={errorCallbackURL}
         invitationId={invitationId}
+        admin={admin}
       />
     )
   }
@@ -61,6 +72,7 @@ function VerifyMagicLinkPage() {
       token={token}
       callbackURL={callbackURL}
       errorCallbackURL={errorCallbackURL}
+      admin={admin}
     />
   )
 }
@@ -70,11 +82,13 @@ function InvitationVerifyPage({
   callbackURL,
   errorCallbackURL,
   invitationId,
+  admin,
 }: {
   token: string
   callbackURL: string | undefined
   errorCallbackURL: string | undefined
   invitationId: string
+  admin: boolean
 }) {
   const [branding, setBranding] = useState<InviteBranding | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -95,34 +109,46 @@ function InvitationVerifyPage({
   }
 
   return (
-    <PageShell>
+    <PageShell admin={admin}>
       <Card>
         {branding ? (
           <>
             <WorkspaceIdentity branding={branding} />
             <div className="mt-6 mb-6 h-px bg-border/50" />
-            <h1 className="text-2xl font-bold tracking-tight">You're invited!</h1>
+            <h1 className="text-2xl font-bold tracking-tight">
+              {admin ? "You're invited!" : 'از شما دعوت شده است!'}
+            </h1>
             <p className="mt-2 text-muted-foreground">
               {branding.inviterName
-                ? `${branding.inviterName} invited you to join ${branding.workspaceName}.`
-                : `You've been invited to join ${branding.workspaceName}.`}
+                ? admin
+                  ? `${branding.inviterName} invited you to join ${branding.workspaceName}.`
+                  : `${branding.inviterName} از شما دعوت کرده است به ${branding.workspaceName} بپیوندید.`
+                : admin
+                  ? `You've been invited to join ${branding.workspaceName}.`
+                  : `از شما دعوت شده است به ${branding.workspaceName} بپیوندید.`}
             </p>
           </>
         ) : (
           <>
             <div className="h-8" />
-            <h1 className="text-2xl font-bold tracking-tight">You're invited!</h1>
-            <p className="mt-2 text-muted-foreground">Loading invitation details...</p>
+            <h1 className="text-2xl font-bold tracking-tight">
+              {admin ? "You're invited!" : 'از شما دعوت شده است!'}
+            </h1>
+            <p className="mt-2 text-muted-foreground">
+              {admin ? 'Loading invitation details...' : 'در حال دریافت جزئیات دعوت‌نامه...'}
+            </p>
           </>
         )}
         <Button onClick={handleAccept} disabled={isLoading} className="mt-6 w-full h-11">
           {isLoading ? (
             <>
               <ArrowPathIcon className="mr-2 h-4 w-4 animate-spin" />
-              Setting up...
+              {admin ? 'Setting up...' : 'در حال آماده‌سازی...'}
             </>
-          ) : (
+          ) : admin ? (
             'Accept invitation'
+          ) : (
+            'پذیرش دعوت‌نامه'
           )}
         </Button>
       </Card>
@@ -134,10 +160,12 @@ function GenericVerifyPage({
   token,
   callbackURL,
   errorCallbackURL,
+  admin,
 }: {
   token: string
   callbackURL: string | undefined
   errorCallbackURL: string | undefined
+  admin: boolean
 }) {
   // Auto-trigger the verify after a short delay. The delay matters
   // for two things:
@@ -187,19 +215,25 @@ function GenericVerifyPage({
   const continueLink = (
     <a href={fallbackHref} className="mt-6 inline-block">
       <Button variant="outline" className="h-11">
-        Continue
+        {admin ? 'Continue' : 'ادامه'}
       </Button>
     </a>
   )
 
   return (
-    <PageShell>
+    <PageShell admin={admin}>
       <Card>
         <div className="flex items-center justify-center gap-2">
           <ArrowPathIcon className="h-5 w-5 animate-spin text-primary" aria-hidden />
-          <h1 className="text-2xl font-bold tracking-tight">Signing you in&hellip;</h1>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {admin ? 'Signing you in…' : 'در حال ورود...'}
+          </h1>
         </div>
-        <p className="mt-2 text-muted-foreground">Hang tight, this only takes a moment.</p>
+        <p className="mt-2 text-muted-foreground">
+          {admin
+            ? 'Hang tight, this only takes a moment.'
+            : 'لطفاً صبر کنید؛ این کار لحظه‌ای طول می‌کشد.'}
+        </p>
         {showContinue && continueLink}
         <noscript>{continueLink}</noscript>
       </Card>
@@ -226,9 +260,13 @@ function WorkspaceIdentity({ branding }: { branding: InviteBranding }) {
   )
 }
 
-function PageShell({ children }: { children: React.ReactNode }) {
+function PageShell({ children, admin }: { children: React.ReactNode; admin: boolean }) {
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-background overflow-hidden px-4">
+    <div
+      lang={admin ? 'en' : 'fa'}
+      dir={admin ? 'ltr' : 'rtl'}
+      className="relative flex min-h-screen items-center justify-center bg-background overflow-hidden px-4"
+    >
       <div
         className="pointer-events-none absolute inset-0 opacity-[0.04] dark:opacity-[0.07]"
         style={{

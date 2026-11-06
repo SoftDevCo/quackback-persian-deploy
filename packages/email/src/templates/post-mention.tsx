@@ -24,7 +24,7 @@ export function PostMentionEmail({
   preferencesUrl,
   logoUrl,
 }: PostMentionEmailProps) {
-  const displayName = mentionerName || 'Anonymous user'
+  const displayName = mentionerName || 'کاربر ناشناس'
   const hasExcerpt = excerpt.length > 0
 
   return (

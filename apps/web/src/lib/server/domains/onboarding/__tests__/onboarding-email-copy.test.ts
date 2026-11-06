@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { SUPPORTED_LOCALES } from '@/lib/shared/i18n'
 import {
   invitationEmailCopy,
+  invitationCopyForRequest,
   nudgeEmailCopy,
   readyEmailCopy,
   recipientLocale,
@@ -47,6 +48,13 @@ describe('recipientLocale', () => {
 })
 
 describe('readyEmailCopy', () => {
+  it('formats a Persian ready message with the actual name and workspace', async () => {
+    const copy = await ready('fa')
+    expect(copy.subject).toBe('Sam، Acme آماده است')
+    expect(copy.heading).toBe('Acme آماده است')
+    expect(copy.paragraphs[0]).toBe('تابلوی شما در acme.quackback.test فعال است.')
+    expect(copy.cta).toEqual({ label: 'باز کردن Acme', url: `${BASE}/admin` })
+  })
   it('reads as the mockup in English: share link, one step, trial line', async () => {
     const copy = await ready('en')
 
@@ -134,6 +142,19 @@ describe('readyEmailCopy', () => {
 })
 
 describe('nudgeEmailCopy', () => {
+  it('uses a Persian step title in the Persian setup email', async () => {
+    const copy = await nudgeEmailCopy({
+      locale: 'fa',
+      name: 'Sam',
+      workspaceName: 'Acme',
+      goal: 'customer_support',
+      base: BASE,
+      nextStep: MESSENGER_STEP,
+    })
+    expect(copy.lang).toBe('fa')
+    expect(copy.dir).toBe('rtl')
+    expect(copy.cta.label).toBe('افزودن پیام‌رسان به سایت')
+  })
   it('for support: names the next step on the button and offers nothing beside it', async () => {
     const copy = await nudgeEmailCopy({
       locale: 'en',
@@ -165,6 +186,15 @@ describe('nudgeEmailCopy', () => {
 })
 
 describe('invitationEmailCopy', () => {
+  it('sends team invitations in Persian even without a Persian request locale', async () => {
+    const copy = await invitationCopyForRequest('Sam', 'Kim', 'Acme')
+    expect(copy.lang).toBe('fa')
+    expect(copy.dir).toBe('rtl')
+    expect(copy.cta).toBe('پذیرش دعوت‌نامه')
+    expect(copy.subject).toBe('Sam شما را به Acme دعوت کرده است')
+    expect(copy.heading).toBe('سلام Kim، به Acme بپیوندید')
+    expect(copy.body).toBe('Sam از شما دعوت کرده است به تیم Acme بپیوندید.')
+  })
   it('never names the inviter by email address', async () => {
     const copy = await invitationEmailCopy({
       locale: 'en',
