@@ -9,7 +9,6 @@ import { authClient } from '@/lib/client/auth-client'
 import { PortalAuthShell } from '@/components/auth/portal-auth-shell'
 import { PortalIntlProvider } from '@/components/portal-intl-provider'
 import { loadPortalIntl } from '@/lib/server/functions/locale'
-import { errorText } from '@/lib/client/error-text'
 
 export const Route = createFileRoute('/auth/reset-password')({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -33,16 +32,17 @@ function ResetPasswordPage() {
 
 function ResetPasswordContent({ token, urlError }: { token: string; urlError: string }) {
   const intl = useIntl()
+  const failed = intl.formatMessage({
+    id: 'portal.auth.resetPassword.failed',
+    defaultMessage: 'Failed to reset password',
+  })
+  const invalidLink = intl.formatMessage({
+    id: 'portal.auth.resetPassword.invalidLink',
+    defaultMessage: 'This reset link is invalid or has expired.',
+  })
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [error, setError] = useState(
-    urlError === 'INVALID_TOKEN'
-      ? intl.formatMessage({
-          id: 'portal.auth.resetPassword.invalidLink',
-          defaultMessage: 'This reset link is invalid or has expired.',
-        })
-      : ''
-  )
+  const [error, setError] = useState(urlError === 'INVALID_TOKEN' ? invalidLink : '')
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
 
@@ -85,25 +85,12 @@ function ResetPasswordContent({ token, urlError }: { token: string; urlError: st
         token,
       })
       if (result.error) {
-        throw new Error(
-          result.error.message ||
-            intl.formatMessage({
-              id: 'portal.auth.resetPassword.failed',
-              defaultMessage: 'Failed to reset password',
-            })
-        )
+        setError(result.error.code === 'INVALID_TOKEN' ? invalidLink : failed)
+        return
       }
       setSuccess(true)
-    } catch (err) {
-      setError(
-        errorText(
-          err,
-          intl.formatMessage({
-            id: 'portal.auth.resetPassword.failed',
-            defaultMessage: 'Failed to reset password',
-          })
-        )
-      )
+    } catch {
+      setError(failed)
     } finally {
       setLoading(false)
     }

@@ -35,48 +35,43 @@ import type { PlanLimitsEmailKind, PlanLimitsEmailState } from './plan-limits.em
 const log = logger.child({ component: 'plan-limits-emails' })
 
 const REMINDER_LEAD_MS = 2 * 24 * 60 * 60 * 1000
-
-/** "1 status component is", "3 status components are": a count, its noun and the verb. */
-function plural(n: number, noun: string): string {
-  return n === 1 ? `1 ${noun} is` : `${n} ${noun}s are`
-}
+const countFormat = new Intl.NumberFormat('fa-IR')
 
 /** How each cap reads in the email: its name and what happens to the excess. */
-const ISSUE_COPY: Record<PlanLimitIssueKey, { label: string; effect: (n: number) => string }> = {
+const ISSUE_COPY: Record<PlanLimitIssueKey, { label: string; effect: (n: string) => string }> = {
   maxBoards: {
-    label: 'Boards',
-    effect: (n) => `${n} ${n === 1 ? 'board becomes' : 'boards become'} read-only`,
+    label: 'بردها',
+    effect: (n) => `${n} برد فقط‌خواندنی می‌شود`,
   },
   maxTeamSeats: {
-    label: 'Team seats',
-    effect: (n) =>
-      `${n} ${n === 1 ? 'teammate loses' : 'teammates lose'} admin access until a seat frees up`,
+    label: 'ظرفیت اعضای تیم',
+    effect: (n) => `دسترسی مدیریتی ${n} هم‌تیمی تا آزاد شدن ظرفیت قطع می‌شود`,
   },
   maxStatusComponents: {
-    label: 'Status components',
-    effect: (n) => `${plural(n, 'status component')} hidden from your status page`,
+    label: 'اجزای صفحهٔ وضعیت',
+    effect: (n) => `${n} جزء در صفحهٔ وضعیت شما پنهان می‌شود`,
   },
-  maxCustomRoles: { label: 'Custom roles', effect: (n) => `${plural(n, 'custom role')} locked` },
+  maxCustomRoles: { label: 'نقش‌های سفارشی', effect: (n) => `${n} نقش سفارشی قفل می‌شود` },
   maxSendingDomains: {
-    label: 'Sending domains',
-    effect: (n) => `${plural(n, 'sending domain')} paused`,
+    label: 'دامنه‌های ارسال ایمیل',
+    effect: (n) => `ارسال ایمیل از ${n} دامنه متوقف می‌شود`,
   },
   maxHelpCenterLocales: {
-    label: 'Help center languages',
-    effect: (n) => `${plural(n, 'help center language')} locked`,
+    label: 'زبان‌های مرکز راهنما',
+    effect: (n) => `${n} زبان مرکز راهنما قفل می‌شود`,
   },
 }
 
 /**
- * A date as it reads inline ("Nov 23") and in a heading ("Mon, Nov 23"), in
- * UTC so every reader sees the same day. The year appears only when it
+ * A Gregorian date in Persian, inline and in a heading, in UTC so every
+ * reader sees the same day. The year appears only when it
  * differs from the current one. The emails name the last full day to fix
  * (`deadlineDay`), never the instant the grace ends.
  */
 export function deadlineText(at: Date, now: Date): { deadline: string; deadlineHeading: string } {
   const year = at.getUTCFullYear() === now.getUTCFullYear() ? {} : { year: 'numeric' as const }
   const format = (extra: Intl.DateTimeFormatOptions) =>
-    new Intl.DateTimeFormat('en', {
+    new Intl.DateTimeFormat('fa-IR-u-ca-gregory', {
       month: 'short',
       day: 'numeric',
       timeZone: 'UTC',
@@ -104,7 +99,7 @@ export function emailRows(view: PlanLimitsView): PlanLimitsEmailRow[] {
       label: copy.label,
       used: issue.used,
       cap: issue.cap,
-      effect: copy.effect(excess),
+      effect: copy.effect(countFormat.format(excess)),
     }
   })
 }

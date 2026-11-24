@@ -1,12 +1,15 @@
 import { useSessionContext, useWorkspaceSettings } from '@/lib/client/hooks/use-root-context'
 import { realEmail } from '@/lib/shared/anonymous-email'
 import { useEffect, useState } from 'react'
+import { useIntl, type IntlShape } from 'react-intl'
 import { createFileRoute } from '@tanstack/react-router'
 import { DomainAccessPicker } from '@/components/domain-access-picker'
 import { PortalIntlProvider } from '@/components/portal-intl-provider'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
-import { DEFAULT_LOCALE } from '@/lib/shared/i18n'
+import { DEFAULT_LOCALE, PERSIAN_DEFAULT_LOCALE, seedAreaMessages } from '@/lib/shared/i18n'
+import { htmlLangDir } from '@/lib/shared/document-locale'
+import { portalScopeWords } from '@/components/settings/api-keys/portal-key-messages'
 import {
   ACCESS_DOMAINS,
   domainAccessLevels,
@@ -29,14 +32,23 @@ export const Route = createFileRoute('/oauth/consent')({
   // Kept as the router parsed it: the signed query is read from it whole
   // (consentQueryFromSearch), never from fields the router may have retyped.
   validateSearch: (search: Record<string, unknown>) => search,
+  loader: async ({ context }) => {
+    const locale =
+      context.acceptLanguageLocale === PERSIAN_DEFAULT_LOCALE
+        ? PERSIAN_DEFAULT_LOCALE
+        : DEFAULT_LOCALE
+    return { locale, messages: await seedAreaMessages(locale, 'personalApiKeys') }
+  },
   component: ConsentRoute,
 })
 
 function ConsentRoute() {
-  // This standalone route uses English copy and sits outside the portal/admin providers.
+  const { locale, messages } = Route.useLoaderData()
   return (
-    <PortalIntlProvider locale={DEFAULT_LOCALE}>
-      <ConsentPage />
+    <PortalIntlProvider locale={locale} messages={messages}>
+      <div {...htmlLangDir(locale)}>
+        <ConsentPage />
+      </div>
     </PortalIntlProvider>
   )
 }
@@ -59,10 +71,16 @@ interface OAuthClientInfo {
 }
 
 /** Where the authorization code goes, in words. */
-function redirectTargetText(target: ConsentRedirectTarget): string {
-  if (target.kind === 'web') return `Sends you back to ${target.host}`
-  if (target.kind === 'device') return 'Sends you back to an app on this device'
-  return `Sends you back to the ${target.scheme} app on this device`
+function redirectTargetText(target: ConsentRedirectTarget, persian: boolean): string {
+  if (target.kind === 'web')
+    return persian ? `شما را به ${target.host} برمی‌گرداند` : `Sends you back to ${target.host}`
+  if (target.kind === 'device')
+    return persian
+      ? 'شما را به برنامه‌ای در این دستگاه برمی‌گرداند'
+      : 'Sends you back to an app on this device'
+  return persian
+    ? `شما را به برنامهٔ ${target.scheme} در این دستگاه برمی‌گرداند`
+    : `Sends you back to the ${target.scheme} app on this device`
 }
 
 function isSafeUrl(url: string): boolean {
@@ -91,33 +109,46 @@ function useClientInfo(clientId: string, redirectUri: string | undefined) {
   return client
 }
 
-function joinWords(words: string[]): string {
-  if (words.length <= 1) return words.join('')
-  return `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`
-}
-
 /** One sentence saying what the current selection lets the client do. */
 function accessSummary(
+  intl: IntlShape,
   clientName: string,
   preset: ConsentPreset,
   levels: DomainAccessLevels
 ): string {
+  const persian = intl.locale === PERSIAN_DEFAULT_LOCALE
   if (preset === 'full') {
-    return `${clientName} can read and make changes across your workspace, including settings, up to what your role allows.`
+    return persian
+      ? `${clientName} می‌تواند داده‌ها و تنظیمات فضای کاری را در حد مجوزهای نقش شما بخواند و تغییر دهد.`
+      : `${clientName} can read and make changes across your workspace, including settings, up to what your role allows.`
   }
   if (preset === 'read') {
-    return `${clientName} can search and read. It cannot post, reply, publish or change settings.`
+    return persian
+      ? `${clientName} می‌تواند جست‌وجو کند و داده‌ها را بخواند. ثبت مطلب، پاسخ، انتشار و تغییر تنظیمات در این دسترسی مجاز نیست.`
+      : `${clientName} can search and read. It cannot post, reply, publish or change settings.`
   }
+  const { label } = portalScopeWords(intl)
   const writes = ACCESS_DOMAINS.filter((d) => ['read_write', 'write'].includes(levels[d.domain]))
   const reads = ACCESS_DOMAINS.filter((d) => levels[d.domain] === 'read')
-  if (writes.length + reads.length === 0) return 'Select at least one area to continue.'
+  if (writes.length + reads.length === 0)
+    return persian
+      ? 'برای ادامه دست‌کم یک بخش را انتخاب کنید.'
+      : 'Select at least one area to continue.'
   const parts: string[] = []
   if (writes.length > 0) {
-    parts.push(`${clientName} can change ${joinWords(writes.map((d) => d.label))}.`)
+    const areas = intl.formatList(writes.map((d) => label(d.domain)))
+    parts.push(
+      persian
+        ? `${clientName} می‌تواند این بخش‌ها را تغییر دهد: ${areas}.`
+        : `${clientName} can change ${areas}.`
+    )
   }
   if (reads.length > 0) {
+    const areas = intl.formatList(reads.map((d) => label(d.domain)))
     parts.push(
-      `${writes.length > 0 ? 'It' : clientName} can only read ${joinWords(reads.map((d) => d.label))}.`
+      persian
+        ? `دسترسی ${writes.length > 0 ? 'آن' : clientName} به این بخش‌ها فقط برای خواندن است: ${areas}.`
+        : `${writes.length > 0 ? 'It' : clientName} can only read ${areas}.`
     )
   }
   return parts.join(' ')
@@ -136,7 +167,7 @@ function AccessChoice({
   selected: boolean
   title: string
   description: string
-  recommended?: boolean
+  recommended?: string
   disabled?: boolean
   onSelect: () => void
 }) {
@@ -162,7 +193,7 @@ function AccessChoice({
         <span className="flex items-center gap-2 text-sm font-medium">
           {title}
           {recommended && (
-            <span className="text-[11px] font-medium text-muted-foreground">Recommended</span>
+            <span className="text-[11px] font-medium text-muted-foreground">{recommended}</span>
           )}
         </span>
         <span className="block text-xs text-muted-foreground">{description}</span>
@@ -172,6 +203,10 @@ function AccessChoice({
 }
 
 function ConsentPage() {
+  const intl = useIntl()
+  const persian = intl.locale === PERSIAN_DEFAULT_LOCALE
+  const text = (english: string, farsi: string) => (persian ? farsi : english)
+  const scopeWords = portalScopeWords(intl)
   // Posted back unchanged on submit: Better Auth checks its signature.
   const oauthQuery = consentQueryFromSearch(Route.useSearch())
   const search = consentQueryFields(oauthQuery)
@@ -195,7 +230,7 @@ function ConsentPage() {
   const [submitting, setSubmitting] = useState<'accept' | 'deny' | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const clientName = client?.client_name || 'An application'
+  const clientName = client?.client_name || text('An application', 'یک برنامه')
   // A self-registered client's link is never shown: it chose it freely, so it
   // could point at anyone. No client's logo is shown: loading it from the
   // client's host would tell that host who is consenting and when, and the
@@ -246,7 +281,7 @@ function ConsentPage() {
       }
     } catch {
       setSubmitting(null)
-      setError('Something went wrong. Please try again.')
+      setError(text('Something went wrong. Please try again.', 'مشکلی پیش آمد. دوباره تلاش کنید.'))
     }
   }
 
@@ -277,7 +312,7 @@ function ConsentPage() {
           {verifiedHost ? (
             <p className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
               <BadgeCheck className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              Verified:{' '}
+              {text('Verified:', 'تأیید شده:')}{' '}
               {verifiedLink ? (
                 <a
                   href={verifiedLink}
@@ -294,44 +329,64 @@ function ConsentPage() {
             </p>
           ) : (
             <p className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-              Unverified app
+              {text('Unverified app', 'برنامهٔ تأییدنشده')}
             </p>
           )}
 
           <p className="text-sm text-muted-foreground">
-            wants to access {workspaceName ?? 'your account'}
+            {text(
+              `wants to access ${workspaceName ?? 'your account'}`,
+              `درخواست دسترسی به ${workspaceName ?? 'حساب شما'} را دارد`
+            )}
           </p>
 
           {(!verifiedHost || redirectTarget) && (
             <p className="text-xs text-muted-foreground/70">
-              {!verifiedHost && <>This app chose its own name, so it may not be who it says. </>}
-              {redirectTarget && <>{redirectTargetText(redirectTarget)}.</>}
+              {!verifiedHost &&
+                text(
+                  'This app chose its own name, so it may not be who it says. ',
+                  'این برنامه نام خود را تعیین کرده است و ممکن است هویت واقعی آن با نام نمایش‌داده‌شده فرق داشته باشد. '
+                )}
+              {redirectTarget && <>{redirectTargetText(redirectTarget, persian)}.</>}
             </p>
           )}
 
           {codeStaysOnDevice && (
             <p className="text-xs text-muted-foreground/70">
-              Only continue if you started this from an app on this device yourself.
+              {text(
+                'Only continue if you started this from an app on this device yourself.',
+                'فقط اگر خودتان این درخواست را از برنامه‌ای روی همین دستگاه شروع کرده‌اید ادامه دهید.'
+              )}
             </p>
           )}
         </div>
 
         <div className="space-y-3">
-          <div role="radiogroup" aria-label="Access level" className="space-y-2">
+          <div
+            role="radiogroup"
+            aria-label={text('Access level', 'سطح دسترسی')}
+            className="space-y-2"
+          >
             <AccessChoice
               value="full"
               selected={preset === 'full'}
-              title="Full access"
-              description="Read and make changes, up to what your role allows"
-              recommended
+              title={text('Full access', 'دسترسی کامل')}
+              description={text(
+                'Read and make changes, up to what your role allows',
+                'خواندن و تغییر دادن در حد مجوزهای نقش شما'
+              )}
+              recommended={text('Recommended', 'پیشنهادی')}
               disabled={submitting !== null}
               onSelect={() => setLevels(consentPresetLevels('full'))}
             />
             <AccessChoice
               value="read"
               selected={preset === 'read'}
-              title="Read only"
-              description="Search and look things up. No changes."
+              title={text('Read only', 'فقط خواندن')}
+              description={text(
+                'Search and look things up. No changes.',
+                'جست‌وجو و مشاهدهٔ داده‌ها بدون امکان تغییر'
+              )}
               disabled={submitting !== null}
               onSelect={() => setLevels(consentPresetLevels('read'))}
             />
@@ -339,8 +394,8 @@ function ConsentPage() {
               <AccessChoice
                 value="custom"
                 selected
-                title="Custom"
-                description="Your own selection below"
+                title={text('Custom', 'سفارشی')}
+                description={text('Your own selection below', 'بخش‌های انتخابی شما در پایین')}
                 disabled={submitting !== null}
                 onSelect={() => {}}
               />
@@ -355,10 +410,16 @@ function ConsentPage() {
             className="inline-flex items-center gap-1.5 rounded-sm px-1 py-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring"
           >
             <ChevronRight
-              className={cn('h-3.5 w-3.5 transition-transform', showDetail && 'rotate-90')}
+              className={cn(
+                'h-3.5 w-3.5 transition-transform rtl:-scale-x-100',
+                showDetail && 'rotate-90'
+              )}
               aria-hidden
             />
-            Choose what {clientName} can access
+            {text(
+              `Choose what ${clientName} can access`,
+              `انتخاب بخش‌هایی که ${clientName} به آن‌ها دسترسی دارد`
+            )}
           </button>
 
           {showDetail && (
@@ -371,26 +432,39 @@ function ConsentPage() {
                 onChange={setLevels}
                 disabled={submitting !== null}
                 flagHighImpact
+                words={{
+                  ...scopeWords,
+                  description: (domain) =>
+                    domain === 'settings'
+                      ? text(
+                          'Branding, Messenger, modules, office hours, and webhooks',
+                          'هویت بصری، پیام‌رسان، بخش‌ها، ساعت‌های کاری و وب‌هوک‌ها'
+                        )
+                      : scopeWords.description(domain),
+                }}
               />
               <div className="flex items-center justify-between px-4 py-3 border-t border-border/30">
-                <div className="min-w-0 pr-4">
-                  <p className="text-sm font-medium">Stay signed in</p>
+                <div className="min-w-0 pe-4">
+                  <p className="text-sm font-medium">{text('Stay signed in', 'حفظ دسترسی')}</p>
                   <p className="text-xs text-muted-foreground">
-                    Let {clientName} refresh access without asking again
+                    {text(
+                      `Let ${clientName} refresh access without asking again`,
+                      `به ${clientName} اجازه دهید دسترسی خود را بدون درخواست مجدد تمدید کند`
+                    )}
                   </p>
                 </div>
                 <Switch
                   checked={offlineAccess}
                   onCheckedChange={setOfflineAccess}
                   disabled={submitting !== null}
-                  aria-label="Stay signed in"
+                  aria-label={text('Stay signed in', 'حفظ دسترسی')}
                 />
               </div>
             </div>
           )}
 
           <p className="text-xs text-muted-foreground px-1" aria-live="polite">
-            {accessSummary(clientName, preset, levels)}
+            {accessSummary(intl, clientName, preset, levels)}
           </p>
         </div>
 
@@ -409,7 +483,9 @@ function ConsentPage() {
               disabled={submitting !== null}
               onClick={() => handleConsent(false)}
             >
-              {submitting === 'deny' ? 'Denying...' : 'Deny'}
+              {submitting === 'deny'
+                ? text('Denying...', 'در حال رد دسترسی…')
+                : text('Deny', 'رد دسترسی')}
             </Button>
             <Button
               size="lg"
@@ -417,14 +493,22 @@ function ConsentPage() {
               disabled={submitting !== null || !canAuthorize}
               onClick={() => handleConsent(true)}
             >
-              {submitting === 'accept' ? 'Authorizing...' : 'Authorize'}
+              {submitting === 'accept'
+                ? text('Authorizing...', 'در حال ثبت اجازه…')
+                : text('Authorize', 'اجازهٔ دسترسی')}
             </Button>
           </div>
 
           <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground/60">
             <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
             <p>
-              {signedInAs ? `Signed in as ${signedInAs}. ` : ''}Revoke any time in account settings
+              {signedInAs
+                ? text(`Signed in as ${signedInAs}. `, `با نشانی ${signedInAs} وارد شده‌اید. `)
+                : ''}
+              {text(
+                'Revoke any time in account settings',
+                'هر زمان می‌توانید این دسترسی را در تنظیمات حساب لغو کنید'
+              )}
             </p>
           </div>
 
@@ -434,7 +518,10 @@ function ConsentPage() {
             if (!hasTos && !hasPolicy) return null
             return (
               <p className="text-center text-xs text-muted-foreground/60">
-                {'By authorizing, you agree to '}
+                {text(
+                  'By authorizing, you agree to ',
+                  'با دادن اجازهٔ دسترسی، این موارد را می‌پذیرید: '
+                )}
                 {hasTos && (
                   <a
                     href={client.tos_uri!}
@@ -442,10 +529,10 @@ function ConsentPage() {
                     rel="noopener noreferrer"
                     className="underline hover:text-muted-foreground transition-colors"
                   >
-                    Terms of Service
+                    {text('Terms of Service', 'شرایط استفاده')}
                   </a>
                 )}
-                {hasTos && hasPolicy && ' and '}
+                {hasTos && hasPolicy && text(' and ', ' و ')}
                 {hasPolicy && (
                   <a
                     href={client.policy_uri!}
@@ -453,7 +540,7 @@ function ConsentPage() {
                     rel="noopener noreferrer"
                     className="underline hover:text-muted-foreground transition-colors"
                   >
-                    Privacy Policy
+                    {text('Privacy Policy', 'سیاست حریم خصوصی')}
                   </a>
                 )}
                 .

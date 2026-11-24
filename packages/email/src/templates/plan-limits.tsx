@@ -33,9 +33,10 @@ export interface PlanLimitsEmailProps {
   logoUrl?: string
 }
 
+const countFormat = new Intl.NumberFormat('fa-IR')
+
 function issues(count: number): string {
-  const n = Math.max(count, 1)
-  return `${n} ${n === 1 ? 'issue' : 'issues'}`
+  return `${countFormat.format(Math.max(count, 1))} مورد`
 }
 
 /** The subject of a plan limits email. */
@@ -46,63 +47,65 @@ export function planLimitsSubject(
   /** Set when only features pause and no cap is over: the date, as in a sentence. */
   featuresOnlyDeadline?: string
 ): string {
-  const name = workspaceName ?? 'Your workspace'
+  const name = workspaceName ?? 'فضای کاری شما'
   if (featuresOnlyDeadline && kind !== 'enforced') {
-    return `${name}: some features pause after ${featuresOnlyDeadline}`
+    return `برخی امکانات ${name} پس از ${featuresOnlyDeadline} متوقف می‌شوند`
   }
   if (kind === 'start') {
-    const plan = planName ? `the ${planName} plan's` : "its plan's"
-    return `Action needed: ${name} is over ${plan} limits`
+    const plan = planName ? `طرح ${planName}` : 'طرح فعلی'
+    return `${name} از سقف‌های ${plan} عبور کرده و نیاز به اقدام دارد`
   }
-  if (kind === 'reminder') return `2 days left to fix ${name}'s plan limits`
-  return `Some of ${name} is now paused`
+  if (kind === 'reminder') return `۲ روز تا رفع موارد مربوط به محدودیت طرح ${name} باقی است`
+  return `بخشی از امکانات ${name} متوقف شده است`
 }
 
 function heading(props: PlanLimitsEmailProps): string {
   if (props.kind === 'enforced') return planLimitsSubject(props.kind, props.workspaceName, null)
-  if (props.rows.length === 0) return `Some features pause after ${props.deadlineHeading}`
-  return `Fix ${issues(props.rows.length)} by ${props.deadlineHeading}`
+  if (props.rows.length === 0) return `برخی امکانات پس از ${props.deadlineHeading} متوقف می‌شوند`
+  return `تا ${props.deadlineHeading} ${issues(props.rows.length)} را برطرف کنید`
 }
 
 function intro(props: PlanLimitsEmailProps): string {
-  const name = props.workspaceName ?? 'Your workspace'
-  const plan = props.planName ? `the ${props.planName} plan` : 'its plan'
+  const name = props.workspaceName ?? 'فضای کاری شما'
+  const plan = props.planName ? `طرح ${props.planName}` : 'طرح فعلی'
   if (props.kind === 'enforced') {
-    return `${name} is still over the limits of ${plan}, so the items below are now paused.`
+    return `${name} همچنان بیش از سقف‌های ${plan} استفاده می‌کند و موارد زیر فعلاً متوقف شده‌اند.`
   }
+  const overLimit = `${name} از سقف‌های ${plan} عبور کرده است.`
   if (props.rows.length === 0) {
-    return `${name} is over the limits of ${plan}. Upgrade to keep everything.`
+    return `${overLimit} برای حفظ همهٔ امکانات، طرح را ارتقا دهید.`
   }
-  return `${name} is over the limits of ${plan}. Fix ${issues(props.rows.length)} by ${props.deadline}, or upgrade to keep everything.`
+  return `${overLimit} تا ${props.deadline} ${issues(props.rows.length)} را برطرف کنید یا برای حفظ همهٔ امکانات، طرح را ارتقا دهید.`
 }
 
-/**
- * Feature names as a sentence's subject, joined without a serial comma: "Webhooks, workflows and your custom
- * domain". Names after the first lose their leading capital unless they open
- * with an acronym (AI, MCP), and "Custom ..." names read as the workspace's own.
- */
+const FEATURE_LABELS_FA: ReadonlyMap<string, string> = new Map([
+  ['Custom domain', 'دامنهٔ اختصاصی شما'],
+  ['Single sign-on', 'ورود یکپارچه'],
+  ['Webhooks', 'وب‌هوک‌ها'],
+  ['Workflows', 'گردش‌های کار'],
+  ['Integrations', 'اتصال‌ها'],
+  ['Custom CSS', 'CSS سفارشی شما'],
+  ['AI assistant', 'دستیار هوش مصنوعی'],
+  ['AI article translation', 'ترجمهٔ مقاله با هوش مصنوعی'],
+])
+
+/** Localize the feature labels supplied by the shared admin catalogue. */
 export function featureList(names: readonly string[]): string {
-  const items = names.map((name, index) => {
-    const own = /^Custom /.test(name)
-      ? `your ${name.charAt(0).toLowerCase()}${name.slice(1)}`
-      : name
-    if (index === 0) return own.charAt(0).toUpperCase() + own.slice(1)
-    const first = own.split(' ')[0] ?? ''
-    return /^[A-Z]{2,}$/.test(first) ? own : own.charAt(0).toLowerCase() + own.slice(1)
-  })
-  return new Intl.ListFormat('en-GB', { style: 'long', type: 'conjunction' }).format(items)
+  const labels = names.map((name) => FEATURE_LABELS_FA.get(name) ?? name)
+  return labels.length < 2
+    ? (labels[0] ?? '')
+    : `${labels.slice(0, -1).join('، ')} و ${labels.at(-1)}`
 }
 
 function featureLine(props: PlanLimitsEmailProps): string {
   const list = featureList(props.pausingFeatures)
-  const many = props.pausingFeatures.length > 1
+  const ended = props.pausingFeatures.length === 1 ? 'شده است' : 'شده‌اند'
   if (props.kind === 'enforced') {
-    const verb = many ? 'are' : 'is'
     return props.planName
-      ? `${list} ${verb} paused on the ${props.planName} plan.`
-      : `${list} ${verb} now paused.`
+      ? `${list} در طرح ${props.planName} متوقف ${ended}.`
+      : `${list} فعلاً متوقف ${ended}.`
   }
-  return `${list} ${many ? 'pause' : 'pauses'} after ${props.deadline}.`
+  return `${list} پس از ${props.deadline} متوقف ${props.pausingFeatures.length === 1 ? 'می‌شود' : 'می‌شوند'}.`
 }
 
 /**
@@ -120,7 +123,8 @@ export function PlanLimitsEmail(props: PlanLimitsEmailProps) {
       <Section>
         {rows.map((row) => (
           <Text key={row.label} style={typography.text}>
-            <strong>{row.label}</strong>: {row.used} of {row.cap}. {row.effect}.
+            <strong>{row.label}</strong>: {countFormat.format(row.used)} از{' '}
+            {countFormat.format(row.cap)}. {row.effect}.
           </Text>
         ))}
         {pausingFeatures.length > 0 ? (
@@ -129,26 +133,26 @@ export function PlanLimitsEmail(props: PlanLimitsEmailProps) {
       </Section>
       <Text style={typography.text}>
         {kind === 'enforced'
-          ? 'Nothing is deleted. It comes back when you upgrade.'
-          : 'Nothing is deleted.'}
+          ? 'چیزی حذف نمی‌شود. با ارتقای طرح، موارد متوقف‌شده دوباره فعال می‌شوند.'
+          : 'چیزی حذف نمی‌شود.'}
       </Text>
       {limitsUrl ? (
         <Section style={{ margin: '24px 0' }}>
           <Button style={button.primary} href={limitsUrl}>
-            Review issues
+            بررسی موارد
           </Button>
         </Section>
       ) : null}
       {planUrl ? (
         <Text style={typography.text}>
           <Link href={planUrl} style={utils.link}>
-            {props.fromPlanName ? `Upgrade to ${props.fromPlanName}` : 'Compare plans'}
+            {props.fromPlanName ? `ارتقا به ${props.fromPlanName}` : 'مقایسهٔ طرح‌ها'}
           </Link>
         </Text>
       ) : null}
       <TransactionalFooter>
-        You&apos;re getting this because you manage billing
-        {workspaceName ? ` for ${workspaceName}` : ''}.
+        این ایمیل را دریافت کرده‌اید چون امور مالی
+        {workspaceName ? ` ${workspaceName}` : ' فضای کاری'} را مدیریت می‌کنید.
       </TransactionalFooter>
     </EmailLayout>
   )

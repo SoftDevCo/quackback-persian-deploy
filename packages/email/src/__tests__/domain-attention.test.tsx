@@ -13,7 +13,6 @@ function visibleText(html: string): string {
     .replace(/<[^>]*>/g, ' ')
     .replace(/&#x27;/g, "'")
     .replace(/&quot;/g, '"')
-    .replace(/[^\x20-\x7e]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -27,16 +26,18 @@ describe('DomainAttentionEmail', () => {
         DomainAttentionEmail({
           domain: 'acme.com',
           record,
-          deadline: 'November 8, 2026',
+          deadline: '۸ نوامبر ۲۰۲۶',
           settingsUrl: 'https://help.acme.com/admin/settings/domains/acme.com',
         })
       )
     )
-    expect(text).toContain('acme.com needs attention')
-    expect(text).toContain('The verification record (TXT _quackback.acme.com) is missing.')
-    expect(text).toContain('Value: quackback-domain-verification=abc123')
-    expect(text).toContain('Add it back by November 8, 2026 to keep acme.com verified.')
-    expect(text).toContain('Open domain settings')
+    expect(text).toContain('دامنهٔ acme.com نیاز به بررسی دارد')
+    expect(text).toContain('رکورد تأیید مالکیت (TXT _quackback.acme.com) وجود ندارد.')
+    expect(text).toContain('مقدار: quackback-domain-verification=abc123')
+    expect(text).toContain(
+      'برای حفظ تأیید دامنهٔ acme.com، رکورد را تا ۸ نوامبر ۲۰۲۶ دوباره اضافه کنید.'
+    )
+    expect(text).toContain('تنظیمات دامنه را باز کنید')
     expect(text).not.toMatch(/—/)
   })
 
@@ -50,9 +51,9 @@ describe('DomainAttentionEmail', () => {
         })
       )
     )
-    expect(text).toContain('acme.com is no longer verified')
-    expect(text).toContain('The verification record (TXT _quackback.acme.com) is still missing.')
-    expect(text).toContain('Sign-in is no longer verified for acme.com, eu.acme.com.')
+    expect(text).toContain('دامنهٔ acme.com دیگر تأییدشده نیست')
+    expect(text).toContain('رکورد تأیید مالکیت (TXT _quackback.acme.com) همچنان وجود ندارد.')
+    expect(text).toContain('ورود از طریق این دامنه‌ها دیگر تأییدشده نیست: acme.com، eu.acme.com.')
   })
 
   it('leaves sign-in out when nothing rested on the domain', () => {

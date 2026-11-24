@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { SUPPORTED_LOCALES } from '@/lib/shared/i18n'
+import { loadWidgetMessages, SUPPORTED_LOCALES } from '@/lib/shared/i18n'
 import { WIDGET_LOCALE_LABELS } from '@/lib/shared/widget/translations'
 import { TRANSLATE_LANGUAGES } from '@/lib/shared/assistant/copilot-contract'
 
@@ -28,6 +28,11 @@ function readWidgetLocales(): string[] {
 }
 
 describe('widget locale list', () => {
+  it('seeds the shared closed ticket label in Persian', async () => {
+    const messages = await loadWidgetMessages('fa')
+    expect(messages['portal.tickets.stage.closed']).toBe('بسته شد')
+  })
+
   it('offers Thai in the Quinn translation menu', () => {
     expect(TRANSLATE_LANGUAGES).toContainEqual({ value: 'Thai', label: 'ภาษาไทย' })
   })

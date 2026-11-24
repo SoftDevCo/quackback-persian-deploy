@@ -47,13 +47,13 @@ describe('settings/preferences loader', () => {
     })
   })
 
-  it("reads the matrix's strings in the visitor's language", async () => {
+  it('reads the matrix strings in the Persian portal locale even for another browser language', async () => {
     const data = await (Route as unknown as { loader: Loader }).loader({
       context: { acceptLanguageLocale: 'pl' },
     })
 
     expect(data.messages['portal.settings.notifications.pauseAll.label']).toBe(
-      'Wstrzymaj wszystkie e-maile'
+      'توقف همهٔ ایمیل‌ها'
     )
     const ids = Object.keys(data.messages)
     expect(ids.filter((id) => !id.startsWith('portal.settings.notifications.'))).toEqual([])

@@ -175,8 +175,8 @@ export function ownershipProblem(domain: EmailSendingDomain): SendingDomainAtten
 }
 
 /** A date as the warning gives it, in UTC so every reader sees the same day. */
-export function formatDeadline(at: Date): string {
-  return new Intl.DateTimeFormat('en', { dateStyle: 'long', timeZone: 'UTC' }).format(at)
+export function formatDeadline(at: Date, locale = 'en'): string {
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'long', timeZone: 'UTC' }).format(at)
 }
 
 /**
@@ -202,7 +202,12 @@ export async function notifySendingDomainOwnershipMissing(
       body: `${sendingDomainProblem(domain.domain, record)} ${sendingDomainDeadline(domain.domain, by)}`,
       metadata: { sendingDomainId: domain.id, domain: domain.domain, audience: 'admin' },
     })
-    return await emailManagers(managers, domain, record, by)
+    return await emailManagers(
+      managers,
+      domain,
+      record,
+      formatDeadline(deadline, 'fa-IR-u-ca-gregory')
+    )
   } catch (err) {
     log.warn(
       { err, sending_domain_id: domain.id },

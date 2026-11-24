@@ -62,11 +62,11 @@ describe('deadlineText', () => {
     for (const tz of ['Pacific/Kiritimati', 'Pacific/Pago_Pago', 'UTC']) {
       process.env.TZ = tz
       expect(deadlineText(new Date('2026-11-23T23:30:00.000Z'), new Date(SINCE))).toEqual({
-        deadline: 'Nov 23',
-        deadlineHeading: 'Mon, Nov 23',
+        deadline: '۲۳ نوامبر',
+        deadlineHeading: 'دوشنبه ۲۳ نوامبر',
       })
       expect(deadlineText(new Date('2026-11-23T00:30:00.000Z'), new Date(SINCE)).deadline).toBe(
-        'Nov 23'
+        '۲۳ نوامبر'
       )
     }
   })
@@ -74,10 +74,10 @@ describe('deadlineText', () => {
   it('adds the year only when it differs from the current one', () => {
     const at = new Date('2027-01-02T12:00:00.000Z')
     expect(deadlineText(at, new Date('2026-12-28T00:00:00.000Z'))).toEqual({
-      deadline: 'Jan 2, 2027',
-      deadlineHeading: 'Sat, Jan 2, 2027',
+      deadline: '۲ ژانویه ۲۰۲۷',
+      deadlineHeading: 'شنبه ۲ ژانویه ۲۰۲۷',
     })
-    expect(deadlineText(at, new Date('2027-01-01T00:00:00.000Z')).deadline).toBe('Jan 2')
+    expect(deadlineText(at, new Date('2027-01-01T00:00:00.000Z')).deadline).toBe('۲ ژانویه')
   })
 
   it('names the last full day to fix: the day before the grace ends, for any start time', () => {
@@ -106,19 +106,19 @@ describe('emailRows', () => {
     emailRows(view({ issues: [{ key, used, cap }] as never }))[0]!.effect
 
   it('reads every cap as a full sentence, singular and plural', () => {
-    expect(effect('maxStatusComponents', 4, 3)).toBe(
-      '1 status component is hidden from your status page'
+    expect(effect('maxStatusComponents', 4, 3)).toBe('۱ جزء در صفحهٔ وضعیت شما پنهان می‌شود')
+    expect(effect('maxStatusComponents', 6, 3)).toBe('۳ جزء در صفحهٔ وضعیت شما پنهان می‌شود')
+    expect(effect('maxCustomRoles', 2, 1)).toBe('۱ نقش سفارشی قفل می‌شود')
+    expect(effect('maxSendingDomains', 3, 1)).toBe('ارسال ایمیل از ۲ دامنه متوقف می‌شود')
+    expect(effect('maxHelpCenterLocales', 2, 1)).toBe('۱ زبان مرکز راهنما قفل می‌شود')
+    expect(effect('maxBoards', 5, 1)).toBe('۴ برد فقط‌خواندنی می‌شود')
+    expect(effect('maxBoards', 2, 1)).toBe('۱ برد فقط‌خواندنی می‌شود')
+    expect(effect('maxTeamSeats', 2, 1)).toBe(
+      'دسترسی مدیریتی ۱ هم‌تیمی تا آزاد شدن ظرفیت قطع می‌شود'
     )
-    expect(effect('maxStatusComponents', 6, 3)).toBe(
-      '3 status components are hidden from your status page'
+    expect(effect('maxTeamSeats', 4, 1)).toBe(
+      'دسترسی مدیریتی ۳ هم‌تیمی تا آزاد شدن ظرفیت قطع می‌شود'
     )
-    expect(effect('maxCustomRoles', 2, 1)).toBe('1 custom role is locked')
-    expect(effect('maxSendingDomains', 3, 1)).toBe('2 sending domains are paused')
-    expect(effect('maxHelpCenterLocales', 2, 1)).toBe('1 help center language is locked')
-    expect(effect('maxBoards', 5, 1)).toBe('4 boards become read-only')
-    expect(effect('maxBoards', 2, 1)).toBe('1 board becomes read-only')
-    expect(effect('maxTeamSeats', 2, 1)).toBe('1 teammate loses admin access until a seat frees up')
-    expect(effect('maxTeamSeats', 4, 1)).toBe('3 teammates lose admin access until a seat frees up')
   })
 
   it('carries the label, usage and cap of each issue in order', () => {
@@ -131,8 +131,8 @@ describe('emailRows', () => {
       })
     )
     expect(rows.map(({ label, used, cap }) => [label, used, cap])).toEqual([
-      ['Boards', 5, 1],
-      ['Team seats', 3, 1],
+      ['بردها', 5, 1],
+      ['ظرفیت اعضای تیم', 3, 1],
     ])
   })
 })

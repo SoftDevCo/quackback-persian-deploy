@@ -253,7 +253,7 @@ describe.skipIf(!fixture.available)('plan limits emails (real DB)', () => {
     )
     expect(params.deadline).not.toBe(deadlineText(new Date(view.graceEndsAt!), new Date()).deadline)
     // Other test files commit boards of their own, so the count is at least ours.
-    expect(params.rows).toEqual([expect.objectContaining({ label: 'Boards', cap: 1 })])
+    expect(params.rows).toEqual([expect.objectContaining({ label: 'بردها', cap: 1 })])
     expect(params.rows[0]!.used).toBeGreaterThanOrEqual(2)
     expect(params.limitsUrl).toBe('https://app.example.com/admin/settings/billing/limits')
     expect((await storedState())?.emailsSent).toEqual(['start'])
@@ -262,10 +262,10 @@ describe.skipIf(!fixture.available)('plan limits emails (real DB)', () => {
   it('formats the deadline inline and for headings, with the year only when it differs', () => {
     const at = new Date('2026-11-23T10:00:00.000Z')
     expect(deadlineText(at, new Date('2026-11-18T00:00:00.000Z'))).toEqual({
-      deadline: 'Nov 23',
-      deadlineHeading: 'Mon, Nov 23',
+      deadline: '۲۳ نوامبر',
+      deadlineHeading: 'دوشنبه ۲۳ نوامبر',
     })
-    expect(deadlineText(at, new Date('2027-01-02T00:00:00.000Z')).deadline).toBe('Nov 23, 2026')
+    expect(deadlineText(at, new Date('2027-01-02T00:00:00.000Z')).deadline).toBe('۲۳ نوامبر ۲۰۲۶')
   })
 
   it('lets one caller claim each recipient per grace and refuses a stale grace', async () => {

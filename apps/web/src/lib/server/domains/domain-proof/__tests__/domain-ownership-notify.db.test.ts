@@ -126,7 +126,7 @@ describe.skipIf(!fixture.available)('domain ownership notices (real DB, rolled b
     expect(sent.emails[0]).toMatchObject({
       domain: 'acme.com',
       record: { name: '_quackback.acme.com', value: 'quackback-domain-verification=abc123' },
-      deadline: 'November 8, 2026',
+      deadline: '۸ نوامبر ۲۰۲۶',
     })
   })
 

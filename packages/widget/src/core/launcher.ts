@@ -1,6 +1,7 @@
 export interface LauncherOptions {
   placement: 'left' | 'right'
   onClick: () => void
+  locale?: string
   /**
    * Mount the button (and greeting) inside this element with absolute
    * positioning. Used by the admin live preview so the real launcher sits in
@@ -43,6 +44,10 @@ const CLOSE_ICON =
   '<svg width="28" height="28" viewBox="0 0 24 24" fill="none"><path d="M6 18L18 6M6 6l12 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
 
 export function createLauncher(opts: LauncherOptions): LauncherHandle {
+  const persian = /^fa(?:-|$)/i.test(opts.locale ?? document.documentElement.lang)
+  const openLabel = persian ? 'باز کردن ابزار بازخورد' : 'Open feedback widget'
+  const closeLabel = persian ? 'بستن ابزار بازخورد' : 'Close feedback widget'
+  const dismissLabel = persian ? 'بستن پیام خوشامدگویی' : 'Dismiss'
   let bg = DEFAULT_BG
   let fg = DEFAULT_FG
   // The badge shows unread only while the widget is CLOSED — an alert on the
@@ -93,7 +98,7 @@ export function createLauncher(opts: LauncherOptions): LauncherHandle {
     transition:
       'opacity 450ms ease, transform 200ms ease, box-shadow 200ms ease, background-color 200ms ease, color 200ms ease',
   })
-  btn.setAttribute('aria-label', 'Open feedback widget')
+  btn.setAttribute('aria-label', openLabel)
   btn.setAttribute('aria-expanded', 'false')
 
   const wrapper = document.createElement('div')
@@ -204,7 +209,7 @@ export function createLauncher(opts: LauncherOptions): LauncherHandle {
   bubbleText.addEventListener('click', () => opts.onClick())
   const bubbleClose = document.createElement('button')
   bubbleClose.type = 'button'
-  bubbleClose.setAttribute('aria-label', 'Dismiss')
+  bubbleClose.setAttribute('aria-label', dismissLabel)
   bubbleClose.textContent = '×'
   Object.assign(bubbleClose.style, {
     flexShrink: '0',
@@ -258,10 +263,7 @@ export function createLauncher(opts: LauncherOptions): LauncherHandle {
     setOpen(open) {
       isOpen = open
       btn.setAttribute('aria-expanded', open ? 'true' : 'false')
-      btn.setAttribute(
-        'aria-label',
-        open ? 'Close feedback widget' : labelText || 'Open feedback widget'
-      )
+      btn.setAttribute('aria-label', open ? closeLabel : labelText || openLabel)
       iconMessenger.style.opacity = open ? '0' : '1'
       iconMessenger.style.transform = open ? 'rotate(90deg)' : 'rotate(0deg)'
       iconClose.style.opacity = open ? '1' : '0'
@@ -300,7 +302,7 @@ export function createLauncher(opts: LauncherOptions): LauncherHandle {
       btn.style.borderRadius = show ? '24px' : '50%'
       btn.style.padding = show ? '0 16px 0 10px' : '0'
       btn.style.gap = show ? '8px' : '0'
-      if (!isOpen) btn.setAttribute('aria-label', labelText || 'Open feedback widget')
+      if (!isOpen) btn.setAttribute('aria-label', labelText || openLabel)
     },
     setPlacement(side) {
       btn.style.left = side === 'left' ? edge : ''

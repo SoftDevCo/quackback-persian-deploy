@@ -6,17 +6,17 @@ import { ThemeSwitcher } from '@/components/theme-switcher'
 import { NotificationMatrixForm } from '@/components/settings/notification-matrix-form'
 import { AreaMessages } from '@/components/shared/area-messages'
 import { getNotificationPreferencesFn } from '@/lib/server/functions/user'
-import { DEFAULT_LOCALE, seedAreaMessages } from '@/lib/shared/i18n'
+import { PERSIAN_DEFAULT_LOCALE, seedAreaMessages } from '@/lib/shared/i18n'
 
 export const Route = createFileRoute('/_portal/settings/preferences')({
-  loader: async ({ context }) => {
+  loader: async () => {
     // The matrix form below would otherwise fetch this itself once mounted,
     // a separate post-hydration request redoing the session/principal lookup
     // this document response already resolves for the parent layout. Its
     // strings, which only this page shows, load with it.
     const [notificationPreferences, messages] = await Promise.all([
       getNotificationPreferencesFn(),
-      seedAreaMessages(context.acceptLanguageLocale ?? DEFAULT_LOCALE, 'notificationPreferences'),
+      seedAreaMessages(PERSIAN_DEFAULT_LOCALE, 'notificationPreferences'),
     ])
     return { notificationPreferences, messages }
   },

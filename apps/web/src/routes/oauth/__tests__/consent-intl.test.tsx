@@ -138,6 +138,18 @@ describe('standalone MCP consent intl', () => {
     expect(screen.getByRole('button', { name: 'Authorize' })).toBeEnabled()
   })
 
+  it('renders the consent and capability picker in Persian for Persian browsers', async () => {
+    mockRequests()
+    await renderConsent('fa')
+    expect(screen.getByRole('radio', { name: /دسترسی کامل/ })).toBeChecked()
+    expect(screen.getByRole('button', { name: 'اجازهٔ دسترسی' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: /انتخاب بخش‌هایی/ }))
+    expect(screen.getByRole('button', { name: 'تنظیمات: خواندن' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: client.client_name }).closest('[lang]')
+    ).toHaveAttribute('dir', 'rtl')
+  })
+
   it('grants every capability when authorized as it opens', async () => {
     const request = mockRequests()
     await renderConsent('en')

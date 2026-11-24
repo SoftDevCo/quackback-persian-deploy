@@ -80,9 +80,7 @@ export const Route = createFileRoute('/portal-invite/$inviteId')({
 
 function PortalInvitePage() {
   const data = Route.useLoaderData()
-  const { inviteId } = Route.useParams()
-
-  const { title, body } = getMessage(data.status, inviteId)
+  const { title, body } = getMessage(data.status)
 
   return (
     <PageShell>
@@ -93,52 +91,49 @@ function PortalInvitePage() {
           href="/"
           className="mt-6 inline-block text-sm font-medium text-primary hover:underline underline-offset-4"
         >
-          Go to portal
+          بازگشت به پرتال
         </a>
       </Card>
     </PageShell>
   )
 }
 
-function getMessage(
-  status: LoaderData['status'],
-  _inviteId: string
-): { title: string; body: string } {
+function getMessage(status: LoaderData['status']): { title: string; body: string } {
   switch (status) {
     case 'canceled':
       return {
-        title: 'Invite revoked',
-        body: 'This invitation has been revoked. Please ask the workspace admin to send a new one.',
+        title: 'دعوت‌نامه لغو شده است',
+        body: 'از مدیر فضای کاری بخواهید دعوت‌نامهٔ تازه‌ای بفرستد.',
       }
     case 'expired':
       return {
-        title: 'Invite expired',
-        body: 'This invitation has expired. Please ask the workspace admin to resend it.',
+        title: 'اعتبار دعوت‌نامه پایان یافته است',
+        body: 'از مدیر فضای کاری بخواهید دعوت‌نامه را دوباره بفرستد.',
       }
     case 'mismatch':
       return {
-        title: 'Wrong account',
-        body: 'This invite was sent to a different email address. Please sign in with the address it was sent to, then open the link again.',
+        title: 'این دعوت‌نامه برای حساب دیگری است',
+        body: 'با نشانی ایمیلی که دعوت‌نامه به آن فرستاده شده وارد شوید و پیوند را دوباره باز کنید.',
       }
     case 'email_not_verified':
       return {
-        title: 'Verify your email first',
-        body: 'Your email address needs to be verified before you can accept this invitation. Please check your inbox for a verification email, then try the invite link again.',
+        title: 'ابتدا نشانی ایمیل خود را تأیید کنید',
+        body: 'صندوق ورودی را برای ایمیل تأیید بررسی کنید و پس از تأیید نشانی، پیوند دعوت‌نامه را دوباره باز کنید.',
       }
     case 'not_found':
       return {
-        title: 'Invite not found',
-        body: 'This invitation could not be found. It may have already been used or does not exist.',
+        title: 'دعوت‌نامه پیدا نشد',
+        body: 'ممکن است از این دعوت‌نامه قبلاً استفاده شده باشد یا پیوند آن درست نباشد.',
       }
     case 'error':
       return {
-        title: 'Something went wrong',
-        body: 'An unexpected error occurred. Please try again later or contact the workspace admin.',
+        title: 'مشکلی پیش آمد',
+        body: 'کمی بعد دوباره تلاش کنید یا با مدیر فضای کاری تماس بگیرید.',
       }
     default:
       return {
-        title: 'Invite not found',
-        body: 'This invitation could not be found.',
+        title: 'دعوت‌نامه پیدا نشد',
+        body: 'درستی پیوند دعوت‌نامه را بررسی کنید.',
       }
   }
 }
@@ -149,7 +144,11 @@ function getMessage(
 
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-background overflow-hidden px-4">
+    <div
+      lang="fa"
+      dir="rtl"
+      className="relative flex min-h-screen items-center justify-center bg-background overflow-hidden px-4"
+    >
       <div
         className="pointer-events-none absolute inset-0 opacity-[0.04] dark:opacity-[0.07]"
         style={{

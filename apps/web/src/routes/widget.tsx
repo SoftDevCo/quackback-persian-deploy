@@ -3,7 +3,8 @@ import { createServerFn } from '@tanstack/react-start'
 import { getRequestHeaders, setResponseHeader } from '@tanstack/react-start/server'
 import { z } from 'zod'
 import { readConfigFontSans } from '@/lib/shared/theme'
-import { resolveLocale, loadWidgetMessages } from '@/lib/shared/i18n'
+import { useContext } from 'react'
+import { normalizeLocale, loadWidgetMessages, PERSIAN_DEFAULT_LOCALE } from '@/lib/shared/i18n'
 import { WidgetAuthProvider } from '@/components/widget/widget-auth-provider'
 import { FileViewerProvider } from '@/components/shared/files/file-viewer-context'
 import { extractSessionTokenFromCookie } from '@/lib/server/functions/portal-session-token'
@@ -13,6 +14,7 @@ import { escapeInlineStyle } from '@/lib/shared/safe-inline-content'
 import { Button } from '@/components/ui/button'
 import { useBrandingFont } from '@/lib/client/hooks/use-branding-font'
 import { isTeamMember } from '@/lib/shared/roles'
+import { DocumentLocaleContext } from '@/components/shared/document-locale-context'
 
 const setIframeHeaders = createServerFn({ method: 'GET' }).handler(async () => {
   setResponseHeader('Content-Security-Policy', 'frame-ancestors *')
@@ -21,15 +23,12 @@ const setIframeHeaders = createServerFn({ method: 'GET' }).handler(async () => {
 
 /**
  * Resolve the widget locale on the server so SSR and hydration agree.
- * The `?locale=` search param wins over the Accept-Language header; both
- * are read server-side because navigator/URL access during render would
- * diverge from SSR and trigger React hydration error #418 (issue #133).
+ * Explicit embed locale choices take precedence over the Persian site default.
  */
 const getWidgetLocale = createServerFn({ method: 'GET' })
   .validator(z.object({ explicitLocale: z.string().optional() }))
   .handler(async ({ data }) => {
-    const acceptLanguage = getRequestHeaders().get('accept-language')
-    return resolveLocale(acceptLanguage, data.explicitLocale)
+    return normalizeLocale(data.explicitLocale ?? '') ?? PERSIAN_DEFAULT_LOCALE
   })
 
 /** Extract the signed session cookie for direct widget session reuse (same-origin only). */
@@ -45,7 +44,7 @@ export const Route = createFileRoute('/widget')({
   // it makes the widget CDN-rewrite-proof for self-hosters on any CDN.
   // 'data-only' (not false): the loader must still run on the server so
   // setIframeHeaders() can set frame-ancestors/X-Frame-Options on the
-  // document response, and the locale is resolved from Accept-Language.
+  // document response and the locale is resolved from the embed options.
   ssr: 'data-only',
   validateSearch: (
     search: Record<string, unknown>
@@ -143,13 +142,16 @@ export const Route = createFileRoute('/widget')({
  */
 function WidgetErrorComponent() {
   const router = useRouter()
+  const persian = useContext(DocumentLocaleContext) === PERSIAN_DEFAULT_LOCALE
 
   return (
     <div className="flex min-h-[200px] items-center justify-center px-4">
       <div className="text-center">
-        <p className="text-[13px] text-muted-foreground">Something went wrong.</p>
+        <p className="text-[13px] text-muted-foreground">
+          {persian ? 'مشکلی پیش آمد.' : 'Something went wrong.'}
+        </p>
         <Button className="mt-3" size="sm" variant="outline" onClick={() => router.invalidate()}>
-          Retry
+          {persian ? 'تلاش دوباره' : 'Retry'}
         </Button>
       </div>
     </div>

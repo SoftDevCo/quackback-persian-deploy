@@ -22,18 +22,40 @@ export interface DomainAttentionEmailProps {
 }
 
 /** The heading and subject. */
-export function domainAttentionTitle(domain: string, lapsed: boolean): string {
+export function domainAttentionTitle(
+  domain: string,
+  lapsed: boolean,
+  locale: 'en' | 'fa' = 'en'
+): string {
+  if (locale === 'fa') {
+    return lapsed ? `دامنهٔ ${domain} دیگر تأییدشده نیست` : `دامنهٔ ${domain} نیاز به بررسی دارد`
+  }
   return lapsed ? `${domain} is no longer verified` : `${domain} needs attention`
 }
 
 /** What happened, in the words the bell and the email share. */
-export function domainAttentionMessage(args: {
-  domain: string
-  recordName: string
-  deadline?: string | null
-  signInDomains?: readonly string[] | null
-}): string {
+export function domainAttentionMessage(
+  args: {
+    domain: string
+    recordName: string
+    deadline?: string | null
+    signInDomains?: readonly string[] | null
+  },
+  locale: 'en' | 'fa' = 'en'
+): string {
   const { domain, recordName, deadline, signInDomains } = args
+  if (locale === 'fa') {
+    const named = `رکورد تأیید مالکیت (TXT ${recordName})`
+    if (!signInDomains) {
+      return deadline
+        ? `${named} وجود ندارد. برای حفظ تأیید دامنهٔ ${domain}، رکورد را تا ${deadline} دوباره اضافه کنید.`
+        : `${named} وجود ندارد.`
+    }
+    const base = `${named} همچنان وجود ندارد.`
+    return signInDomains.length > 0
+      ? `${base} ورود از طریق این دامنه‌ها دیگر تأییدشده نیست: ${signInDomains.join('، ')}.`
+      : base
+  }
   const named = `The verification record (TXT ${recordName})`
   if (!signInDomains) {
     return deadline
@@ -60,25 +82,26 @@ export function DomainAttentionEmail({
   workspaceName,
   logoUrl,
 }: DomainAttentionEmailProps) {
-  const title = domainAttentionTitle(domain, !!signInDomains)
+  const title = domainAttentionTitle(domain, !!signInDomains, 'fa')
   return (
     <EmailLayout preview={title} logoUrl={logoUrl}>
       <Heading style={typography.h1}>{title}</Heading>
       <Text style={typography.text}>
-        {domainAttentionMessage({ domain, recordName: record.name, deadline, signInDomains })}
+        {domainAttentionMessage({ domain, recordName: record.name, deadline, signInDomains }, 'fa')}
       </Text>
-      <Text style={typography.text}>Value: {record.value}</Text>
+      <Text style={typography.text}>مقدار: {record.value}</Text>
       {settingsUrl ? (
         <Text style={typography.text}>
+          برای بررسی دوباره،{' '}
           <Link href={settingsUrl} style={utils.link}>
-            Open domain settings
-          </Link>{' '}
-          to check again.
+            تنظیمات دامنه را باز کنید
+          </Link>
+          .
         </Text>
       ) : null}
       <TransactionalFooter>
-        You&apos;re receiving this because you manage domains
-        {workspaceName ? ` for ${workspaceName}` : ''}.
+        این ایمیل را دریافت کرده‌اید چون دامنه‌های
+        {workspaceName ? ` ${workspaceName}` : ' فضای کاری'} را مدیریت می‌کنید.
       </TransactionalFooter>
     </EmailLayout>
   )

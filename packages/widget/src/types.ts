@@ -34,7 +34,7 @@ export interface InitOptions {
   /** Set `launcher: false` to hide the default floating button and open programmatically. */
   launcher?: boolean
   /**
-   * Override the auto-detected UI language. Accepts any BCP-47 tag — the host
+   * Override this deployment's default Persian UI. Accepts any BCP-47 tag — the host
    * forwards it and the Quackback instance resolves the closest catalog it has.
    * The literals are autocomplete hints for the languages Quackback ships today
    * (see WIDGET_LOCALES).

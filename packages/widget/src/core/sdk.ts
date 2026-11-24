@@ -297,6 +297,7 @@ export function createSDK(): SDK {
     if (launcher || !config || config.launcher === false) return
     launcher = createLauncher({
       placement,
+      locale: config.locale,
       onClick: () => {
         if (panelOpen) dispatch('close')
         else dispatch('open')
@@ -308,6 +309,7 @@ export function createSDK(): SDK {
     switch (cmd) {
       case 'init': {
         const next = { ...(a as InitOptions) }
+        next.locale ??= 'fa'
         if (!next.instanceUrl) throw new Error('Quackback: init requires { instanceUrl }')
         if (!isSafeHttpUrl(next.instanceUrl))
           throw new Error('Quackback: instanceUrl must be an http(s) URL')

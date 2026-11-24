@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { SUPPORTED_LOCALES, DEFAULT_LOCALE } from '@/lib/shared/i18n'
+import {
+  PORTAL_MESSAGE_PREFIX_LIST,
+  SUPPORTED_LOCALES,
+  DEFAULT_LOCALE,
+  PERSIAN_DEFAULT_LOCALE,
+  UNSUBSCRIBE_MESSAGE_PREFIX,
+} from '@/lib/shared/i18n'
 
 // Derive the catalog registry from the JSON files on disk rather than a
 // hand-maintained import list — adding a locale is then just dropping its
@@ -18,7 +24,9 @@ const catalogs: Record<string, Record<string, string>> = Object.fromEntries(
 const en = catalogs[DEFAULT_LOCALE]
 const enKeys = Object.keys(en)
 const enKeySet = new Set(enKeys)
-const localesToCheck = SUPPORTED_LOCALES.filter((l) => l !== DEFAULT_LOCALE)
+const localesToCheck = SUPPORTED_LOCALES.filter(
+  (locale) => locale !== DEFAULT_LOCALE && locale !== PERSIAN_DEFAULT_LOCALE
+)
 
 // Collect the top-level ICU argument names in a message: `{name}` -> "name",
 // `{count, plural, ...}` -> "count". Branch keywords (plural/one/other) and the
@@ -333,6 +341,20 @@ describe('locale catalogs', () => {
     const localeKeys = new Set(Object.keys(catalogs[locale]))
     const missing = enKeys.filter((key) => !localeKeys.has(key))
     expect(missing, `${locale}.json is missing ${missing.length} key(s)`).toEqual([])
+  })
+
+  it('covers the Persian public surfaces, including their ICU placeholders', () => {
+    // The fork uses Persian on the public surfaces and English in its admin.
+    const fa = catalogs[PERSIAN_DEFAULT_LOCALE]
+    const prefixes = [...PORTAL_MESSAGE_PREFIX_LIST, UNSUBSCRIBE_MESSAGE_PREFIX, 'oauthDevice.']
+    const publicKeys = enKeys.filter((key) => prefixes.some((prefix) => key.startsWith(prefix)))
+    const missing = publicKeys.filter((key) => !fa[key]?.trim())
+    expect(missing).toEqual([])
+
+    const mismatched = publicKeys.filter(
+      (key) => [...icuArgNames(fa[key])].sort().join() !== [...icuArgNames(en[key])].sort().join()
+    )
+    expect(mismatched).toEqual([])
   })
 
   // Extra keys are dead weight (and usually a sign a key was renamed in en.json

@@ -499,7 +499,14 @@ export async function loadAdminMessages(locale: SupportedLocale): Promise<Record
  * Ask-AI / ui / common / files strings they embed). Everything else in the
  * catalog is portal/admin copy the iframe never shows.
  */
-const WIDGET_MESSAGE_PREFIXES = ['widget.', 'helpAskAi.', 'ui.', 'common.', 'files.']
+const WIDGET_MESSAGE_PREFIXES = [
+  'widget.',
+  'helpAskAi.',
+  'ui.',
+  'common.',
+  'files.',
+  'portal.tickets.stage.',
+]
 
 /**
  * The widget's slice of the message catalog. Loaded in the widget layout

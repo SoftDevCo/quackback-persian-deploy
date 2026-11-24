@@ -298,7 +298,7 @@ export const Route = createFileRoute('/_portal')({
     }
 
     const workspaceName = loaderData?.workspaceName ?? 'Quackback'
-    const description = `Share feedback, vote on feature requests, and track the ${workspaceName} roadmap.`
+    const description = `پیشنهادهای خود را ثبت کنید، به ایده‌های دیگران رأی بدهید و نقشهٔ راه ${workspaceName} را دنبال کنید.`
     // Social share image: workspace logo, then the bundled default.
     const ogImageUrl = resolvePortalOgImageUrl(loaderData?.brandingData, loaderData?.baseUrl)
 

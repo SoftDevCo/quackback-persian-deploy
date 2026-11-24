@@ -4,7 +4,11 @@
  */
 import { describe, expect, it } from 'vitest'
 import { render } from '@react-email/components'
-import { SendingDomainAttentionEmail } from '../templates/sending-domain-attention'
+import {
+  SendingDomainAttentionEmail,
+  sendingDomainDeadline,
+  sendingDomainProblem,
+} from '../templates/sending-domain-attention'
 
 function visibleText(html: string): string {
   return html
@@ -16,6 +20,15 @@ function visibleText(html: string): string {
 }
 
 describe('SendingDomainAttentionEmail', () => {
+  it('keeps the shared in-app notification copy English', () => {
+    expect(sendingDomainProblem('acme.com', 'signing-key')).toBe(
+      "The signing key for acme.com isn't working."
+    )
+    expect(sendingDomainDeadline('acme.com', '17 November 2026')).toBe(
+      'Add it back by 17 November 2026 to keep sending from acme.com.'
+    )
+  })
+
   it('says the signing key is not working when no listed record is at fault', async () => {
     const text = visibleText(
       await render(SendingDomainAttentionEmail({ domain: 'acme.com', record: 'signing-key' }))
@@ -95,14 +108,14 @@ describe('SendingDomainAttentionEmail', () => {
             state: 'missing',
             value: 'quackback-domain-verification=abc',
           },
-          deadline: '17 November 2026',
+          deadline: '۱۷ نوامبر ۲۰۲۶',
         })
       )
     )
     expect(text).toContain('رکورد مالکیت (TXT _quackback.acme.com) وجود ندارد.')
     expect(text).toContain('مقدار: quackback-domain-verification=abc')
     expect(text).toContain(
-      'برای ادامهٔ ارسال از acme.com، رکورد را تا 17 November 2026 دوباره اضافه کنید.'
+      'برای ادامهٔ ارسال از acme.com، رکورد را تا ۱۷ نوامبر ۲۰۲۶ دوباره اضافه کنید.'
     )
     // Still sending from the domain, so it does not say replies have fallen back.
     expect(text).not.toContain('تا زمان رفع مشکل، ایمیل‌ها از نشانی پیش‌فرض ارسال می‌شوند.')

@@ -26,6 +26,7 @@ const FRAME_TITLE: Record<string, string> = {
   ar: 'مساعدة',
   de: 'Hilfe',
   es: 'Ayuda',
+  fa: 'راهنمای پرتال',
   fr: 'Aide',
   pl: 'Pomoc',
   pt: 'Ajuda',

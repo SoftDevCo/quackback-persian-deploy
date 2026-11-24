@@ -6,7 +6,7 @@ import { RssIcon } from '@heroicons/react/24/outline'
 import { Button } from '@/components/ui/button'
 import { PortalPageHeader } from '@/components/public/portal-page-header'
 import { AreaMessages } from '@/components/shared/area-messages'
-import { DEFAULT_LOCALE, loadAreaMessages } from '@/lib/shared/i18n'
+import { PERSIAN_DEFAULT_LOCALE, loadAreaMessages } from '@/lib/shared/i18n'
 import { publicStatusPageQueries, publicStatusHistoryQueries } from '@/lib/client/queries/status'
 import { setPublicDocumentCacheHeaders } from '@/lib/server/functions/public-cache'
 import {
@@ -32,10 +32,7 @@ export const Route = createFileRoute('/_portal/status/')({
     if (typeof window === 'undefined') await setPublicDocumentCacheHeaders()
     // The status page's strings stay out of the catalog every other page
     // seeds; the page reads them with its data.
-    const messagesPromise = loadAreaMessages(
-      context.acceptLanguageLocale ?? DEFAULT_LOCALE,
-      'statusPage'
-    )
+    const messagesPromise = loadAreaMessages(PERSIAN_DEFAULT_LOCALE, 'statusPage')
     try {
       await context.queryClient.ensureQueryData(publicStatusPageQueries.get())
     } catch {

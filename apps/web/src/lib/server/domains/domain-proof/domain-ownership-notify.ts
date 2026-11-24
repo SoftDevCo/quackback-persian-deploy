@@ -108,7 +108,9 @@ export async function notifyDomainOwnershipMissing(
     if (managers.length === 0) return true
     const by = formatDeadline(deadline)
     if (opts.ring) await ring(managers, domain, `${domain.name} needs attention`, { deadline: by })
-    return await emailManagers(managers, domain, { deadline: by })
+    return await emailManagers(managers, domain, {
+      deadline: formatDeadline(deadline, 'fa-IR-u-ca-gregory'),
+    })
   } catch (err) {
     log.warn({ err, domain: domain.name }, 'domain ownership warning notification failed')
     return false

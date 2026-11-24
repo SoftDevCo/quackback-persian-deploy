@@ -266,7 +266,7 @@ describe.skipIf(!fixture.available)('plan limits emails: content and recipients 
       limitsUrl: 'https://app.example.com/admin/settings/billing/limits',
       planUrl: 'https://app.example.com/admin/settings/billing',
       // Other test files commit rows of their own, so counts are at least ours.
-      rows: [expect.objectContaining({ label: 'Boards', used: expect.any(Number), cap: 1 })],
+      rows: [expect.objectContaining({ label: 'بردها', used: expect.any(Number), cap: 1 })],
       pausingFeatures: expect.arrayContaining(['Webhooks']),
       ...deadlineText(new Date(`${view.deadlineDay}T12:00:00.000Z`), new Date()),
     })

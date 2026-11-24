@@ -1121,7 +1121,7 @@ export async function sendDomainAttentionEmail(
   log.debug('sending domain attention alert')
   return sendEmail({
     to,
-    subject: domainAttentionTitle(domain, !!signInDomains),
+    subject: domainAttentionTitle(domain, !!signInDomains, 'fa'),
     react: DomainAttentionEmail({
       domain,
       record,

@@ -118,11 +118,15 @@ function RateView({ token, linkedRating }: { token: string; linkedRating?: numbe
 
   if (reopened) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center p-4 bg-background">
+      <div
+        lang="fa"
+        dir="rtl"
+        className="flex min-h-screen flex-col items-center justify-center p-4 bg-background"
+      >
         <div className="w-full max-w-md space-y-2 text-center">
-          <h1 className="text-xl font-semibold text-foreground">This conversation is open again</h1>
+          <h1 className="text-xl font-semibold text-foreground">این گفتگو دوباره باز شده است</h1>
           <p className="text-sm text-muted-foreground">
-            You can rate it once it has been resolved.
+            پس از حل موضوع می‌توانید به گفتگو امتیاز بدهید.
           </p>
         </div>
       </div>
@@ -130,7 +134,11 @@ function RateView({ token, linkedRating }: { token: string; linkedRating?: numbe
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center p-4 bg-background">
+    <div
+      lang="fa"
+      dir="rtl"
+      className="flex min-h-screen flex-col items-center justify-center p-4 bg-background"
+    >
       <div className="w-full max-w-md space-y-6">
         {recorded && (
           <div className="flex justify-center">
@@ -142,10 +150,10 @@ function RateView({ token, linkedRating }: { token: string; linkedRating?: numbe
 
         <div className="text-center space-y-2">
           <h1 className="text-xl font-semibold text-foreground">
-            {recorded ? 'Thanks for the feedback' : 'How did we do?'}
+            {recorded ? 'از بازخورد شما سپاسگزاریم' : 'از پشتیبانی ما چقدر راضی بودید؟'}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {recorded ? 'Your rating has been recorded.' : 'Tap a face to confirm your rating.'}
+            {recorded ? 'امتیاز شما ثبت شد.' : 'برای ثبت امتیاز، یکی از شکلک‌ها را انتخاب کنید.'}
           </p>
         </div>
 
@@ -160,7 +168,7 @@ function RateView({ token, linkedRating }: { token: string; linkedRating?: numbe
                     type="button"
                     disabled={submitting}
                     onClick={() => rate(rating)}
-                    aria-label={`Rate ${rating} of 5`}
+                    aria-label={`امتیاز ${rating.toLocaleString('fa')} از ۵`}
                     className={cn(
                       'flex h-12 w-12 items-center justify-center rounded-full text-2xl transition-transform hover:scale-110 disabled:opacity-40',
                       linkedRating === rating ? 'bg-primary/10 ring-2 ring-ring' : 'hover:bg-muted'
@@ -173,7 +181,7 @@ function RateView({ token, linkedRating }: { token: string; linkedRating?: numbe
             </div>
             {rateError && (
               <p className="text-center text-sm text-red-600 dark:text-red-400">
-                Something went wrong. Please try again.
+                مشکلی پیش آمد. دوباره تلاش کنید.
               </p>
             )}
           </div>
@@ -185,12 +193,12 @@ function RateView({ token, linkedRating }: { token: string; linkedRating?: numbe
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               maxLength={2000}
-              placeholder="Anything you'd like to add? (optional)"
+              placeholder="نکته‌ای برای افزودن دارید؟ (اختیاری)"
               className="min-h-24"
             />
             {commentError && (
               <p className="text-center text-sm text-red-600 dark:text-red-400">
-                Something went wrong. Please try again.
+                مشکلی پیش آمد. دوباره تلاش کنید.
               </p>
             )}
             <div className="flex justify-center">
@@ -199,7 +207,7 @@ function RateView({ token, linkedRating }: { token: string; linkedRating?: numbe
                 onClick={submitComment}
                 disabled={!comment.trim() || submitting}
               >
-                {submitting ? 'Sending…' : 'Send comment'}
+                {submitting ? 'در حال ارسال…' : 'ارسال نظر'}
               </Button>
             </div>
           </div>
@@ -207,7 +215,7 @@ function RateView({ token, linkedRating }: { token: string; linkedRating?: numbe
 
         {commentSaved && (
           <p className="text-center text-sm text-muted-foreground">
-            Thanks, your comment has been added.
+            از شما سپاسگزاریم. نظر شما ثبت شد.
           </p>
         )}
       </div>
@@ -219,7 +227,11 @@ function ErrorView({ error }: { error: string }) {
   const { title, message } = getErrorContent(error)
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center p-4 bg-background">
+    <div
+      lang="fa"
+      dir="rtl"
+      className="flex min-h-screen flex-col items-center justify-center p-4 bg-background"
+    >
       <div className="w-full max-w-md space-y-6">
         <div className="flex justify-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
@@ -240,14 +252,14 @@ function getErrorContent(error: string): { title: string; message: string } {
   switch (error) {
     case 'missing':
       return {
-        title: 'Missing Link',
-        message: 'This link is missing some information. Please use the link from your email.',
+        title: 'پیوند ناقص است',
+        message: 'از پیوندی که در ایمیل دریافت کرده‌اید استفاده کنید.',
       }
     case 'invalid':
     default:
       return {
-        title: 'Link Expired',
-        message: 'This rating link has expired or is no longer valid.',
+        title: 'پیوند معتبر نیست',
+        message: 'این پیوند امتیازدهی منقضی شده یا دیگر معتبر نیست.',
       }
   }
 }

@@ -56,14 +56,14 @@ afterEach(() => {
 const wire = () =>
   resendSend.mock.calls.at(-1)?.[0] as { subject: string; html: string; to: unknown }
 
-const rows = [{ label: 'Boards', used: 5, cap: 1, effect: '4 boards become read-only' }]
+const rows = [{ label: 'بردها', used: 5, cap: 1, effect: '۴ برد فقط‌خواندنی می‌شود' }]
 
 const base: Omit<PlanLimitsEmailProps, 'kind'> = {
   workspaceName: 'Acme Support',
   planName: 'Free',
   fromPlanName: 'Pro',
-  deadline: 'Nov 24',
-  deadlineHeading: 'Tue, Nov 24',
+  deadline: '۲۴ نوامبر',
+  deadlineHeading: 'سه‌شنبه ۲۴ نوامبر',
   rows,
   pausingFeatures: ['Webhooks'],
   limitsUrl: 'https://app.example.com/admin/settings/billing/limits',
@@ -74,7 +74,6 @@ function visibleText(html: string): string {
   return html
     .replace(/<[^>]*>/g, ' ')
     .replace(/&#x27;/g, "'")
-    .replace(/[^\x20-\x7e]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -83,14 +82,14 @@ describe('sendPlanLimitsEmail', () => {
   it('puts each variant subject on the wire, naming the workspace and the plan', async () => {
     const to = sealedTo('billing@example.test')
     await email.sendPlanLimitsEmail({ to, kind: 'start', ...base })
-    expect(wire().subject).toBe("Action needed: Acme Support is over the Free plan's limits")
-    expect(wire().html).toContain('Fix 1 issue by Tue, Nov 24')
+    expect(wire().subject).toBe('Acme Support از سقف‌های طرح Free عبور کرده و نیاز به اقدام دارد')
+    expect(wire().html).toContain('تا سه‌شنبه ۲۴ نوامبر ۱ مورد را برطرف کنید')
 
     await email.sendPlanLimitsEmail({ to, kind: 'reminder', ...base })
-    expect(wire().subject).toBe("2 days left to fix Acme Support's plan limits")
+    expect(wire().subject).toBe('۲ روز تا رفع موارد مربوط به محدودیت طرح Acme Support باقی است')
 
     await email.sendPlanLimitsEmail({ to, kind: 'enforced', ...base })
-    expect(wire().subject).toBe('Some of Acme Support is now paused')
+    expect(wire().subject).toBe('بخشی از امکانات Acme Support متوقف شده است')
   })
 
   it('gives the features-only start email its own subject with the date', async () => {
@@ -100,7 +99,7 @@ describe('sendPlanLimitsEmail', () => {
       ...base,
       rows: [],
     })
-    expect(wire().subject).toBe('Acme Support: some features pause after Nov 24')
+    expect(wire().subject).toBe('برخی امکانات Acme Support پس از ۲۴ نوامبر متوقف می‌شوند')
   })
 })
 
@@ -112,9 +111,9 @@ describe('features-only reminder', () => {
       ...base,
       rows: [],
     })
-    expect(wire().subject).toBe('Acme Support: some features pause after Nov 24')
+    expect(wire().subject).toBe('برخی امکانات Acme Support پس از ۲۴ نوامبر متوقف می‌شوند')
     expect(planLimitsSubject('reminder', 'Acme Support', 'Free')).toBe(
-      "2 days left to fix Acme Support's plan limits"
+      '۲ روز تا رفع موارد مربوط به محدودیت طرح Acme Support باقی است'
     )
   })
 })
@@ -150,18 +149,18 @@ describe('plan limits email copy', () => {
         expect(`${subject} | ${text}`, JSON.stringify({ kind, variant })).not.toMatch(BANNED)
         expect(text).not.toMatch(/—|!/)
         expect(subject).not.toMatch(/—|!/)
-        expect(text.match(/Nothing is deleted\./g) ?? []).toHaveLength(1)
+        expect(text.match(/چیزی حذف نمی‌شود\./g) ?? []).toHaveLength(1)
       }
     }
   })
 
   it('reads plainly when the plan is not known', async () => {
     expect(planLimitsSubject('start', 'Acme Support', null)).toBe(
-      "Action needed: Acme Support is over its plan's limits"
+      'Acme Support از سقف‌های طرح فعلی عبور کرده و نیاز به اقدام دارد'
     )
     const text = visibleText(
       await render(PlanLimitsEmail({ ...base, planName: null, kind: 'enforced' }))
     )
-    expect(text).toContain('Webhooks is now paused.')
+    expect(text).toContain('وب‌هوک‌ها فعلاً متوقف شده است.')
   })
 })

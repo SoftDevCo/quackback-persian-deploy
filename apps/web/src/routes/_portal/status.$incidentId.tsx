@@ -18,7 +18,7 @@ import {
 } from '@/components/portal/status'
 import { BackLink } from '@/components/ui/back-link'
 import { AreaMessages } from '@/components/shared/area-messages'
-import { DEFAULT_LOCALE, loadAreaMessages } from '@/lib/shared/i18n'
+import { PERSIAN_DEFAULT_LOCALE, loadAreaMessages } from '@/lib/shared/i18n'
 import type { StatusIncidentId } from '@quackback/ids'
 import { pageCanonical } from '@/lib/shared/section-links'
 
@@ -28,10 +28,7 @@ export const Route = createFileRoute('/_portal/status/$incidentId')({
     const incidentId = params.incidentId as StatusIncidentId
     // The status page's strings stay out of the catalog every other page
     // seeds; the page reads them with its data.
-    const messagesPromise = loadAreaMessages(
-      context.acceptLanguageLocale ?? DEFAULT_LOCALE,
-      'statusPage'
-    )
+    const messagesPromise = loadAreaMessages(PERSIAN_DEFAULT_LOCALE, 'statusPage')
 
     let incident
     try {
@@ -56,7 +53,7 @@ export const Route = createFileRoute('/_portal/status/$incidentId')({
     if (!loaderData) return {}
     const { incidentTitle, workspaceName, canonicalUrl } = loaderData
     const title = `${incidentTitle} - ${workspaceName} Status`
-    const description = `${incidentTitle}. A status update from ${workspaceName}.`
+    const description = `${incidentTitle}؛ گزارشی از وضعیت ${workspaceName}.`
     return {
       meta: [
         { title },

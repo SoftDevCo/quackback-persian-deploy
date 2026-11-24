@@ -87,6 +87,8 @@ describe('ownershipProblem', () => {
 
 describe('formatDeadline', () => {
   it('gives the day in UTC', () => {
-    expect(formatDeadline(new Date('2026-11-17T23:30:00.000Z'))).toBe('November 17, 2026')
+    const date = new Date('2026-11-17T23:30:00.000Z')
+    expect(formatDeadline(date)).toBe('November 17, 2026')
+    expect(formatDeadline(date, 'fa-IR-u-ca-gregory')).toBe('۱۷ نوامبر ۲۰۲۶')
   })
 })

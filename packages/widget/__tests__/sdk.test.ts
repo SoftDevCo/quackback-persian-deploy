@@ -50,23 +50,23 @@ describe('sdk', () => {
   it('init creates a launcher and iframe', () => {
     const sdk = createSDK()
     sdk.dispatch('init', { instanceUrl: ORIGIN })
-    expect(document.querySelector('button[aria-label="Open feedback widget"]')).not.toBeNull()
+    expect(document.querySelector('button[aria-label="باز کردن ابزار بازخورد"]')).not.toBeNull()
     expect(document.querySelector('iframe.quackback-widget-iframe')).not.toBeNull()
   })
 
   it('init with { launcher: false } does not create a button', () => {
     const sdk = createSDK()
     sdk.dispatch('init', { instanceUrl: ORIGIN, launcher: false })
-    expect(document.querySelector('button[aria-label="Open feedback widget"]')).toBeNull()
+    expect(document.querySelector('button[aria-label="باز کردن ابزار بازخورد"]')).toBeNull()
   })
 
   it('a repeat init re-applies launcher: false', () => {
     stubIframe()
     const sdk = createSDK()
     sdk.dispatch('init', { instanceUrl: ORIGIN })
-    expect(document.querySelector('button[aria-label="Open feedback widget"]')).not.toBeNull()
+    expect(document.querySelector('button[aria-label="باز کردن ابزار بازخورد"]')).not.toBeNull()
     sdk.dispatch('init', { instanceUrl: ORIGIN, launcher: false })
-    expect(document.querySelector('button[aria-label="Open feedback widget"]')).toBeNull()
+    expect(document.querySelector('button[aria-label="باز کردن ابزار بازخورد"]')).toBeNull()
   })
 
   it('a repeat init moves an existing launcher to the new placement', () => {
@@ -75,7 +75,7 @@ describe('sdk', () => {
     sdk.dispatch('init', { instanceUrl: ORIGIN })
     sdk.dispatch('init', { instanceUrl: ORIGIN, placement: 'left' })
     const btn = document.querySelector(
-      'button[aria-label="Open feedback widget"]'
+      'button[aria-label="باز کردن ابزار بازخورد"]'
     ) as HTMLButtonElement
     expect(btn.style.left).toBe('24px')
     expect(btn.style.right).toBe('')
@@ -137,7 +137,7 @@ describe('sdk', () => {
     fireReady()
     sdk.dispatch('logout')
     const launcher = document.querySelector(
-      'button[aria-label="Open feedback widget"]'
+      'button[aria-label="باز کردن ابزار بازخورد"]'
     ) as HTMLButtonElement
     expect(launcher).not.toBeNull()
     expect(launcher.style.display).not.toBe('none')
@@ -150,7 +150,8 @@ describe('sdk', () => {
     sdk.dispatch('init', { instanceUrl: ORIGIN })
     const iframe = document.querySelector('iframe.quackback-widget-iframe') as HTMLIFrameElement
     const panel = iframe.parentElement as HTMLElement
-    expect(iframe.title).toBe('Help')
+    expect(iframe.title).toBe('راهنمای پرتال')
+    expect(new URL(iframe.src).searchParams.get('locale')).toBe('fa')
     expect(panel.inert).toBe(true)
     sdk.dispatch('open')
     expect(panel.inert).toBe(false)
@@ -164,6 +165,15 @@ describe('sdk', () => {
     expect(
       (document.querySelector('iframe.quackback-widget-iframe') as HTMLIFrameElement).title
     ).toBe('Hilfe')
+  })
+
+  it('honors an explicit English locale in the Persian deployment', () => {
+    const sdk = createSDK()
+    sdk.dispatch('init', { instanceUrl: ORIGIN, locale: 'en' })
+    expect(document.querySelector('button[aria-label="Open feedback widget"]')).not.toBeNull()
+    const iframe = document.querySelector<HTMLIFrameElement>('iframe.quackback-widget-iframe')!
+    expect(iframe.title).toBe('Help')
+    expect(new URL(iframe.src).searchParams.get('locale')).toBe('en')
   })
 
   it('isOpen tracks panel state', () => {
@@ -293,7 +303,7 @@ describe('sdk', () => {
     sdk.dispatch('init', { instanceUrl: ORIGIN })
     const launcher = () =>
       document.querySelector(
-        'button[aria-label="Open feedback widget"]'
+        'button[aria-label="باز کردن ابزار بازخورد"]'
       ) as HTMLButtonElement | null
     sdk.dispatch('hideLauncher')
     expect(launcher()?.style.display).toBe('none')
@@ -316,7 +326,7 @@ describe('sdk', () => {
     const sdk = createSDK()
     sdk.dispatch('init', { instanceUrl: ORIGIN })
     const btn = document.querySelector(
-      'button[aria-label="Open feedback widget"]'
+      'button[aria-label="باز کردن ابزار بازخورد"]'
     ) as HTMLButtonElement
     expect(btn.style.opacity).toBe('0')
     resolveFetch({ ok: true, json: async () => ({ theme: {} }) })
@@ -337,7 +347,7 @@ describe('sdk', () => {
     const sdk = createSDK()
     sdk.dispatch('init', { instanceUrl: ORIGIN })
     const btn = document.querySelector(
-      'button[aria-label="Open feedback widget"]'
+      'button[aria-label="باز کردن ابزار بازخورد"]'
     ) as HTMLButtonElement
     expect(btn.style.opacity).toBe('1')
     expect(btn.style.backgroundColor).toBe('#ff0000')
@@ -375,7 +385,7 @@ describe('sdk', () => {
     const sdk = createSDK()
     sdk.dispatch('init', { instanceUrl: ORIGIN })
     const btn = document.querySelector(
-      'button[aria-label="Open feedback widget"]'
+      'button[aria-label="باز کردن ابزار بازخورد"]'
     ) as HTMLButtonElement
     expect(btn.style.opacity).toBe('0')
     vi.advanceTimersByTime(1800)
@@ -438,7 +448,7 @@ describe('sdk', () => {
     expect(document.querySelector('iframe.quackback-widget-iframe')).not.toBeNull()
     sdk.dispatch('destroy')
     expect(document.querySelector('iframe.quackback-widget-iframe')).toBeNull()
-    expect(document.querySelector('button[aria-label="Open feedback widget"]')).toBeNull()
+    expect(document.querySelector('button[aria-label="باز کردن ابزار بازخورد"]')).toBeNull()
   })
 
   it('an iframe unread count drives the launcher badge and unread subscribers', () => {
@@ -455,7 +465,7 @@ describe('sdk', () => {
     expect(handler).toHaveBeenCalledWith({ count: 5 })
     // ...and the launcher shows the badge.
     const badge = (
-      document.querySelector('button[aria-label="Open feedback widget"]') as HTMLButtonElement
+      document.querySelector('button[aria-label="باز کردن ابزار بازخورد"]') as HTMLButtonElement
     ).lastElementChild as HTMLElement
     expect(badge.style.display).toBe('flex')
     expect(badge.textContent).toBe('5')
@@ -516,7 +526,7 @@ describe('sdk server-driven launcher config', () => {
     const sdk = createSDK()
     sdk.dispatch('init', { instanceUrl: ORIGIN, placement: 'left' })
     const btn = document.querySelector(
-      'button[aria-label="Open feedback widget"]'
+      'button[aria-label="باز کردن ابزار بازخورد"]'
     ) as HTMLButtonElement
     expect(btn.style.left).toBe('24px')
   })

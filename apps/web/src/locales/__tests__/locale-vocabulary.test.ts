@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { PERSIAN_DEFAULT_LOCALE } from '@/lib/shared/i18n'
 
 const dir = join(import.meta.dirname, '..')
 const catalogues = readdirSync(dir)
@@ -11,14 +12,17 @@ const catalogues = readdirSync(dir)
   }))
 
 describe('one word per product in each language', () => {
-  it.each(catalogues)(
+  // The Persian catalog intentionally covers public surfaces only.
+  const adminCatalogues = catalogues.filter(({ locale }) => locale !== PERSIAN_DEFAULT_LOCALE)
+
+  it.each(adminCatalogues)(
     '$locale names the changelog the same in the admin and the portal',
     ({ messages }) => {
       expect(messages['admin.nav.changelog']).toBe(messages['portal.header.nav.changelog'])
     }
   )
 
-  it.each(catalogues)(
+  it.each(adminCatalogues)(
     "$locale keeps the help menu's What's new apart from the changelog",
     ({ messages }) => {
       expect(messages['admin.help.whatsNew']).not.toBe(messages['admin.nav.changelog'])

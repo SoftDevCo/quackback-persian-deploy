@@ -49,9 +49,13 @@ function OriginTransferPage() {
 
 function OriginTransferContinue({ to }: { to: string }) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-4">
+    <main
+      lang="fa"
+      dir="rtl"
+      className="flex min-h-screen items-center justify-center bg-background px-4"
+    >
       <meta httpEquiv="refresh" content={`0;url=${encodeURI(to)}`} />
-      <p className="text-sm text-muted-foreground">Continuing on this address…</p>
+      <p className="text-sm text-muted-foreground">در حال ادامه در این نشانی…</p>
       <script
         dangerouslySetInnerHTML={{ __html: `window.location.replace(${JSON.stringify(to)})` }}
       />
@@ -61,18 +65,22 @@ function OriginTransferContinue({ to }: { to: string }) {
 
 function OriginTransferError() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-4">
+    <main
+      lang="fa"
+      dir="rtl"
+      className="flex min-h-screen items-center justify-center bg-background px-4"
+    >
       <section className="w-full max-w-md rounded-xl border bg-card p-6 text-center shadow-sm">
-        <h1 className="text-xl font-semibold">Session transfer expired</h1>
+        <h1 className="text-xl font-semibold">مهلت انتقال نشست پایان یافت</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Sign in at this workspace address to continue. The old address cannot restore this
-          session.
+          برای ادامه، در نشانی فعلی فضای کاری وارد شوید. امکان بازیابی این نشست از نشانی قبلی وجود
+          ندارد.
         </p>
         <Link
           to="/auth/login"
           className="mt-5 inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground"
         >
-          Sign in
+          ورود
         </Link>
       </section>
     </main>

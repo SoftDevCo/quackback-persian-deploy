@@ -39,19 +39,43 @@ export interface SendingDomainAttentionEmailProps {
 }
 
 const PURPOSE_LABEL: Record<SendingDomainAttentionRecord['purpose'], string> = {
+  ownership: 'verification record',
+  dkim: 'DKIM record',
+  'mail-from': 'return path record',
+}
+
+const PERSIAN_PURPOSE_LABEL: Record<SendingDomainAttentionRecord['purpose'], string> = {
   ownership: 'رکورد مالکیت',
   dkim: 'رکورد DKIM',
   'mail-from': 'رکورد مسیر بازگشت',
 }
 
-/** One sentence naming the record and what is wrong with it. */
+/** One sentence naming the problem for the English admin notification. */
 export function sendingDomainProblem(
+  domain: string,
+  record: SendingDomainAttentionProblem | null | undefined
+): string {
+  if (!record) return `The email provider stopped confirming ${domain}.`
+  if (record === 'signing-key') return `The signing key for ${domain} isn't working.`
+  const named = `The ${PURPOSE_LABEL[record.purpose]} (${record.type} ${record.name})`
+  if (record.state === 'proxied') return `${named} is proxied. Turn off any proxy for it.`
+  if (record.state === 'mismatch') {
+    if (record.reason === 'truncated') return `${named} was cut short by your DNS host.`
+    if (record.reason === 'quoted') return `${named} has quote marks saved in its value.`
+    return record.seen
+      ? `${named} has a different value: ${record.seen}.`
+      : `${named} has a different value.`
+  }
+  return `${named} is missing.`
+}
+
+function persianSendingDomainProblem(
   domain: string,
   record: SendingDomainAttentionProblem | null | undefined
 ): string {
   if (!record) return `ارائه‌دهندهٔ ایمیل دیگر دامنهٔ ${domain} را تأیید نمی‌کند.`
   if (record === 'signing-key') return `کلید امضای دامنهٔ ${domain} کار نمی‌کند.`
-  const named = `${PURPOSE_LABEL[record.purpose]} (${record.type} ${record.name})`
+  const named = `${PERSIAN_PURPOSE_LABEL[record.purpose]} (${record.type} ${record.name})`
   if (record.state === 'proxied')
     return `${named} از پراکسی عبور می‌کند. پراکسی آن را غیرفعال کنید.`
   if (record.state === 'mismatch') {
@@ -64,7 +88,7 @@ export function sendingDomainProblem(
 
 /** The sentence giving the date a record has to be fixed by. */
 export function sendingDomainDeadline(domain: string, deadline: string): string {
-  return `برای ادامهٔ ارسال از ${domain}، رکورد را تا ${deadline} دوباره اضافه کنید.`
+  return `Add it back by ${deadline} to keep sending from ${domain}.`
 }
 
 /**
@@ -86,13 +110,13 @@ export function SendingDomainAttentionEmail({
   return (
     <EmailLayout preview={title} logoUrl={logoUrl}>
       <Heading style={typography.h1}>{title}</Heading>
-      <Text style={typography.text}>{sendingDomainProblem(domain, record)}</Text>
+      <Text style={typography.text}>{persianSendingDomainProblem(domain, record)}</Text>
       {record && record !== 'signing-key' && record.value ? (
         <Text style={typography.text}>مقدار: {record.value}</Text>
       ) : null}
       <Text style={typography.text}>
         {deadline
-          ? sendingDomainDeadline(domain, deadline)
+          ? `برای ادامهٔ ارسال از ${domain}، رکورد را تا ${deadline} دوباره اضافه کنید.`
           : 'تا زمان رفع مشکل، ایمیل‌ها از نشانی پیش‌فرض ارسال می‌شوند.'}
       </Text>
       {settingsUrl ? (
