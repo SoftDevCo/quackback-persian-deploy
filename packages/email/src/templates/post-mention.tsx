@@ -94,6 +94,7 @@ export function PostMentionEmail({
         <NotificationFooter
           reason={`این ایمیل به این دلیل برای شما ارسال شده که نام‌تان در ${workspaceName} ذکر شده است.`}
           unsubscribeUrl={unsubscribeUrl}
+          unsubscribeLabel="Turn off all email"
           preferencesUrl={preferencesUrl}
         />
       ) : (

@@ -168,6 +168,28 @@ export function useThreadVirtualizer<Row extends { key: string }>({
     }
   }, [rows.length, lastRowKey, virtualizer])
 
+  // A smooth scroll (the scroll-to-latest pill) only measures rows near its
+  // target: virtual-core drops measurements for rows more than ~overscan away
+  // while the scroll runs. A row it mounts in that window is never measured
+  // afterwards, because the ResizeObserver reports size changes only and the
+  // ref measures on mount only. The row keeps the estimate and the rows below
+  // it overlap its bubble. Once scrolling stops, read each mounted row's real
+  // height. resizeItem goes around the in-scroll gate and does nothing for
+  // rows that are already right.
+  const isScrolling = virtualizer.isScrolling
+  useLayoutEffect(() => {
+    if (isScrolling) return
+    for (const node of virtualizer.elementsCache.values()) {
+      if (!(node instanceof HTMLElement) || !node.isConnected) continue
+      const index = Number(node.dataset.index)
+      if (!Number.isInteger(index) || index < 0 || index >= virtualizer.options.count) continue
+      virtualizer.resizeItem(
+        index,
+        virtualizer.options.measureElement(node, undefined, virtualizer)
+      )
+    }
+  }, [isScrolling, virtualizer])
+
   return virtualizer
 }
 
@@ -259,15 +281,29 @@ export function useOlderMessages({
 }
 
 /**
- * Clear the caller's unread state when the newest message comes from the other
- * side (`whenLastFrom`) — opening + reading marks read, not only replying, and
- * a surface's own outbound sends never trigger a write. Keyed on the last
- * message id so benign array re-creation doesn't re-fire it.
+ * The newest message that can be unread for the caller: one sent by the other
+ * side (`from`) and not an internal note, mirroring the server's unread count.
+ * System events and the caller's own messages never count, so a notice that
+ * lands after a reply (e.g. the conversation closing) can't hide that reply.
+ */
+function newestUnreadable(
+  messages: ConversationMessageDTO[],
+  from: 'visitor' | 'agent'
+): ConversationMessageDTO | undefined {
+  return messages.findLast((m) => m.senderType === from && !m.isInternal)
+}
+
+/**
+ * Clear the caller's unread state once the thread shows a message from the
+ * other side (`whenLastFrom`) newer than the caller's watermark: opening and
+ * reading marks read, not only replying. Keyed on that message's id, so the
+ * caller's own sends and system events never trigger a write, and benign array
+ * re-creation doesn't re-fire it.
  *
  * `readThrough` is the caller's current read watermark. When it already covers
- * the newest message there is nothing to clear, so reopening a read thread
- * writes nothing. It is read when the newest message changes, never tracked:
- * a watermark moved back by "mark unread" must not re-mark the thread read.
+ * that message there is nothing to clear, so reopening a read thread writes
+ * nothing. It is read when that message changes, never tracked: a watermark
+ * moved back by "mark unread" must not re-mark the thread read.
  */
 export function useMarkReadOnIncoming({
   conversationId,
@@ -289,11 +325,10 @@ export function useMarkReadOnIncoming({
   /** Bump to check again with no new message, e.g. when a hidden thread is shown. */
   recheck?: number
 }) {
-  const lastMessage = messages.at(-1)
-  const lastMessageId = lastMessage?.id
-  const lastSenderType = lastMessage?.senderType
-  const lastCreatedAtRef = useRef(lastMessage?.createdAt)
-  lastCreatedAtRef.current = lastMessage?.createdAt
+  const target = newestUnreadable(messages, whenLastFrom)
+  const targetId = target?.id
+  const targetCreatedAtRef = useRef(target?.createdAt)
+  targetCreatedAtRef.current = target?.createdAt
   const { markConversationRead } = useVisitorSurfaceRpc()
   const getHeadersRef = useRef(getHeaders)
   getHeadersRef.current = getHeaders
@@ -307,11 +342,10 @@ export function useMarkReadOnIncoming({
   if (!hostShown) enabled = false
 
   useEffect(() => {
-    if (!conversationId || !enabled) return
-    if (lastSenderType !== whenLastFrom) return
+    if (!conversationId || !enabled || !targetId) return
     const through = readThroughRef.current
-    const lastCreatedAt = lastCreatedAtRef.current
-    if (through && lastCreatedAt && Date.parse(through) >= Date.parse(lastCreatedAt)) return
+    const targetCreatedAt = targetCreatedAtRef.current
+    if (through && targetCreatedAt && Date.parse(through) >= Date.parse(targetCreatedAt)) return
     const headers = getHeadersRef.current?.()
     void markConversationRead({
       data: { conversationId },
@@ -319,8 +353,7 @@ export function useMarkReadOnIncoming({
     })
       .then(() => onMarkedRef.current?.())
       .catch(() => {})
-    // lastSenderType is derived from lastMessageId (same message, same sender).
-  }, [conversationId, lastMessageId, enabled, whenLastFrom, lastSenderType, recheck])
+  }, [conversationId, targetId, enabled, recheck])
 }
 
 /** Throttled-typing sender for the composer (wired into useConversationTyping). */

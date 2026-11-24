@@ -33,8 +33,7 @@ export const layout = {
   main: {
     backgroundColor: colors.background,
     direction: 'rtl' as const,
-    fontFamily:
-      'Vazirmatn, Vazir, Tahoma, Arial, sans-serif',
+    fontFamily: 'Vazirmatn, Vazir, Tahoma, Arial, sans-serif',
   },
   container: {
     backgroundColor: colors.surface,

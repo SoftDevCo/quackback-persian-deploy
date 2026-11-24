@@ -1,3 +1,4 @@
+import { DOMAIN_VERIFICATION_ANCHOR } from '@/lib/shared/domains-permissions'
 import { ArrowPathIcon } from '@heroicons/react/24/solid'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -12,9 +13,9 @@ import {
 } from '@/components/shared/dns-record-table'
 import type { CustomDomainInstruction } from '@/lib/server/control-plane/client'
 import { pendingProvenLabel, type ShownProofSource } from '@/lib/shared/domain-proof'
-import { WEB_ADDRESSES_TITLE } from './domains-overview'
+import { CUSTOM_DOMAINS_UNREADABLE } from '@/lib/shared/custom-domains'
 
-/** A hostname, with the proof that covers it when this workspace already holds one. */
+/** A hostname, with how its ownership was accepted when a proven zone covered it. */
 type HostnameRow = CustomDomainInstruction & { provenBy?: ShownProofSource | null }
 
 export function QuackbackUrlCard(props: {
@@ -82,34 +83,46 @@ const READINESS_STATE = {
 } as const
 
 /**
- * The records a hostname needs: the CNAME that routes it and, until it is
- * seen, the TXT that proves this workspace controls it, unless a zone the
- * workspace already proved covers it. Readiness is reported for the hostname
- * as a whole, so every row shares it and a failure is explained once, under
- * the last row.
+ * The records a hostname needs: the CNAME that routes it and, until ownership
+ * is accepted, the TXT that proves this workspace controls it. Each row shows
+ * its own state when the operator reports one, else the hostname's overall
+ * readiness. A failure is explained once, under the last record not yet found.
  */
-function hostnameRecords(domain: HostnameRow): DnsRecordRow[] {
-  const state = READINESS_STATE[domain.readiness]
+export function hostnameRecords(domain: HostnameRow): DnsRecordRow[] {
+  const failed = domain.readiness === 'failed'
   const records: DnsRecordRow[] = [
     {
       label: 'Routing',
       type: 'CNAME',
       name: domain.hostname,
       value: domain.cnameTarget,
-      state,
+      state: READINESS_STATE[domain.routing ?? domain.readiness],
     },
   ]
-  if (!domain.provenBy && isTxtRecord(domain.ownershipProof)) {
+  // An operator that does not report ownershipVerified signals accepted
+  // ownership only through a proven zone; otherwise its TXT follows readiness.
+  const reportsOwnership = domain.ownershipVerified !== undefined
+  const provenZone = !reportsOwnership && domain.ownership === 'proven-zone'
+  if (!provenZone && isTxtRecord(domain.ownershipProof)) {
     records.push({
-      label: 'Ownership',
+      label: 'Verification',
       type: 'TXT',
       name: domain.ownershipProof.name,
       value: domain.ownershipProof.value,
-      state,
+      state: !reportsOwnership
+        ? READINESS_STATE[domain.readiness]
+        : domain.ownershipVerified
+          ? 'found'
+          : failed
+            ? 'problem'
+            : 'waiting',
     })
   }
-  records[records.length - 1]!.problem =
-    "We couldn't confirm these records. Check each name and value, then verify."
+  const unresolved = records.filter((record) => record.state !== 'found').at(-1)
+  if (unresolved) {
+    unresolved.problem =
+      "We couldn't confirm these records. Check each name and value, then verify."
+  }
   return records
 }
 
@@ -122,6 +135,8 @@ function ReadinessBadge({ readiness }: { readiness: CustomDomainInstruction['rea
 export function DomainsCard(props: {
   entitled: boolean
   domains: HostnameRow[]
+  /** The custom domains could not be read: the list is not known to be empty. */
+  domainsUnavailable?: boolean
   hostname: string
   pending: boolean
   error: Error | null
@@ -129,15 +144,22 @@ export function DomainsCard(props: {
   onAdd: () => void
   onRefresh: (hostname: string) => void
   onMakePrimary: (hostname: string) => void
+  /** Whether a section uses the hostname: such a domain is never made primary. */
+  usedBySection?: (hostname: string) => boolean
   onRemove: (hostname: string) => void
+  /** The page's plan limits notice already offers the upgrade: no box of its own. */
+  pausedNoticeShown?: boolean
 }) {
   return (
     <SettingsCard
-      title={WEB_ADDRESSES_TITLE}
-      description="Where people reach your portal and help center."
+      id={DOMAIN_VERIFICATION_ANCHOR}
+      title="Domain verification"
+      description="Add a domain here, then choose what it is used for under Custom domains."
     >
       {!props.entitled ? (
-        <UpgradeNotice entitlement="customDomain" />
+        props.pausedNoticeShown ? null : (
+          <UpgradeNotice entitlement="customDomain" />
+        )
       ) : (
         <form
           className="max-w-xl space-y-3"
@@ -160,7 +182,11 @@ export function DomainsCard(props: {
               disabled={props.pending}
             />
           </div>
-          <Button type="submit" size="sm" disabled={props.pending || !props.hostname.trim()}>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={props.pending || props.domainsUnavailable || !props.hostname.trim()}
+          >
             Add domain
           </Button>
         </form>
@@ -169,6 +195,12 @@ export function DomainsCard(props: {
       {props.error && (
         <p role="alert" className="mt-4 text-sm text-destructive">
           {props.error.message}
+        </p>
+      )}
+
+      {props.domainsUnavailable && (
+        <p role="alert" className="mt-4 text-sm text-destructive">
+          {CUSTOM_DOMAINS_UNREADABLE}
         </p>
       )}
 
@@ -196,17 +228,19 @@ export function DomainsCard(props: {
                   >
                     Verify
                   </Button>
-                  {domain.readiness === 'ready' && !domain.isPrimary && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={props.pending}
-                      onClick={() => props.onMakePrimary(domain.hostname)}
-                    >
-                      Make primary
-                    </Button>
-                  )}
+                  {domain.readiness === 'ready' &&
+                    !domain.isPrimary &&
+                    !props.usedBySection?.(domain.hostname) && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={props.pending}
+                        onClick={() => props.onMakePrimary(domain.hostname)}
+                      >
+                        Make primary
+                      </Button>
+                    )}
                   <Button
                     type="button"
                     size="sm"

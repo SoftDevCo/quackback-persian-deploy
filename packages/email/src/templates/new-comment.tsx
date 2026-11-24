@@ -1,5 +1,5 @@
 import { Button, Column, Heading, Row, Section, Text } from '@react-email/components'
-import { EmailLayout, NotificationFooter } from './email-layout'
+import { EmailLayout, NotificationFooter, feedbackFooterReason } from './email-layout'
 import { typography, button, colors } from './shared-styles'
 
 interface NewCommentEmailProps {
@@ -12,6 +12,8 @@ interface NewCommentEmailProps {
   unsubscribeUrl: string
   preferencesUrl?: string
   logoUrl?: string
+  /** The reader wrote the post. Everyone else follows it (voted, commented or subscribed). */
+  isPostAuthor?: boolean
 }
 
 export function NewCommentEmail({
@@ -24,7 +26,9 @@ export function NewCommentEmail({
   unsubscribeUrl,
   preferencesUrl,
   logoUrl,
+  isPostAuthor = false,
 }: NewCommentEmailProps) {
+  const whose = isPostAuthor ? 'بازخورد شما' : 'مطلبی که دنبال می‌کنید'
   return (
     <EmailLayout
       preview={`نظر جدید درباره‌ی «${postTitle}»`}
@@ -32,10 +36,10 @@ export function NewCommentEmail({
       logoAlt={organizationName}
     >
       {/* Content */}
-      <Heading style={typography.h1}>نظر جدید درباره‌ی بازخورد شما</Heading>
+      <Heading style={typography.h1}>{`نظر جدید دربارهٔ ${whose}`}</Heading>
       <Text style={typography.text}>
         {commenterName}
-        {isTeamMember ? ' (عضو تیم)' : ''} درباره‌ی بازخورد شما در {organizationName} نظر داده است.
+        {isTeamMember ? ' (عضو تیم)' : ''} {`دربارهٔ ${whose} در ${organizationName} نظر داده است.`}
       </Text>
 
       {/* Post Title */}
@@ -88,7 +92,7 @@ export function NewCommentEmail({
 
       {/* Footer */}
       <NotificationFooter
-        reason="این ایمیل به این دلیل برای شما ارسال شده که این بازخورد را ثبت کرده‌اید یا دریافت اعلان‌های آن را فعال کرده‌اید."
+        reason={feedbackFooterReason(isPostAuthor)}
         unsubscribeUrl={unsubscribeUrl}
         preferencesUrl={preferencesUrl}
       />

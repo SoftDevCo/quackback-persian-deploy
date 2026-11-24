@@ -11,13 +11,15 @@
     "./templates": "./src/templates/index.ts",
     "./anon": "./src/anon.ts",
     "./message-id": "./src/message-id.ts",
+    "./named-address": "./src/named-address.ts",
     "./idempotency": "./src/idempotency.ts",
     "./provider": "./src/provider.ts",
     "./recipient": "./src/recipient.ts",
     "./sender": "./src/sender.ts",
     "./ses": "./src/ses.ts",
     "./ses-identity": "./src/ses-identity.ts",
-    "./ses-tenant": "./src/ses-tenant.ts"
+    "./ses-tenant": "./src/ses-tenant.ts",
+    "./subject": "./src/subject.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "^3.1131.0",

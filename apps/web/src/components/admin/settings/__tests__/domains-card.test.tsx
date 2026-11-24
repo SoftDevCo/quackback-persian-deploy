@@ -7,16 +7,21 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 
-import { DomainsCard } from '../domains-cards'
+import { DomainsCard, hostnameRecords } from '../domains-cards'
+import { DOMAIN_VERIFICATION_ANCHOR } from '@/lib/shared/domains-permissions'
 import { FULL_NAMES_NOTE } from '@/components/shared/dns-record-table'
 import type { CustomDomainInstruction } from '@/lib/server/control-plane/client'
 import type { ShownProofSource } from '@/lib/shared/domain-proof'
 
 afterEach(cleanup)
 
-function renderCard(domains: (CustomDomainInstruction & { provenBy?: ShownProofSource | null })[]) {
+function renderCard(
+  domains: (CustomDomainInstruction & { provenBy?: ShownProofSource | null })[],
+  usedBySection?: (hostname: string) => boolean
+) {
   return render(
     <DomainsCard
+      usedBySection={usedBySection}
       entitled
       domains={domains}
       hostname=""
@@ -38,6 +43,48 @@ const base = {
 } as const
 
 describe('<DomainsCard>', () => {
+  it('says when the custom domains could not be read, and adds none until they are', () => {
+    render(
+      <DomainsCard
+        entitled
+        domains={[]}
+        domainsUnavailable
+        hostname="help.example.com"
+        pending={false}
+        error={null}
+        onHostnameChange={vi.fn()}
+        onAdd={vi.fn()}
+        onRefresh={vi.fn()}
+        onMakePrimary={vi.fn()}
+        onRemove={vi.fn()}
+      />
+    )
+    expect(screen.getByRole('alert').textContent).toBe(
+      "Couldn't load your custom domains. Try again."
+    )
+    expect((screen.getByRole('button', { name: 'Add domain' }) as HTMLButtonElement).disabled).toBe(
+      true
+    )
+  })
+
+  it('offers Make primary for a ready domain no section uses, and never for one a section uses', () => {
+    const ready = (hostname: string) =>
+      ({ ...base, hostname, readiness: 'ready', ownershipTxt: null }) as CustomDomainInstruction
+    renderCard(
+      [ready('feedback.example.com'), ready('help.example.com')],
+      (hostname) => hostname === 'help.example.com'
+    )
+    expect(screen.getAllByRole('button', { name: 'Make primary' })).toHaveLength(1)
+    const rows = screen.getAllByRole('listitem')
+    expect(rows[0]!.textContent).toContain('Make primary')
+    expect(rows[1]!.textContent).not.toContain('Make primary')
+  })
+
+  it('carries the anchor Add a new domain lands on', () => {
+    const { container } = renderCard([])
+    expect(container.querySelector(`section#${DOMAIN_VERIFICATION_ANCHOR}`)).not.toBeNull()
+  })
+
   it('shows the ownership TXT record next to the CNAME for a pending domain', () => {
     renderCard([
       {
@@ -96,7 +143,7 @@ describe('<DomainsCard>', () => {
     const rows = [...document.querySelectorAll('[data-slot="dns-record"]')]
     expect(rows.map((r) => r.textContent)).toEqual([
       'Waiting: Routingfeedback.example.comCNAMEedge.example.net',
-      'Waiting: Ownership_quackback-challenge.feedback.example.comTXTproof-1',
+      'Waiting: Verification_quackback-challenge.feedback.example.comTXTproof-1',
     ])
     expect(document.querySelectorAll('[data-slot="dns-record-fix"]')).toHaveLength(0)
     // The hostname's zone is not known, so names are shown in full and the card says so.
@@ -129,21 +176,78 @@ describe('<DomainsCard>', () => {
     provenBy,
   })
 
-  it('shows a covered hostname as already verified in place of the challenge record', () => {
-    renderCard([challenged('email-sending')])
-    const rows = [...document.querySelectorAll('[data-slot="dns-record"]')]
-    expect(rows.map((r) => r.textContent)).toEqual([
-      'Waiting: Routingfeedback.example.comCNAMEedge.example.net',
+  /** A hostname whose ownership the operator accepted through a proven zone. */
+  const accepted = (provenBy: ShownProofSource) => ({
+    ...base,
+    readiness: 'pending' as const,
+    updatedAt: '2026-10-01T12:00:00.000Z',
+    ownershipTxt: null,
+    ownershipProof: null,
+    ownership: 'proven-zone' as const,
+    routing: 'pending' as const,
+    ownershipVerified: true,
+    provenBy,
+  })
+
+  const rowTexts = () =>
+    [...document.querySelectorAll('[data-slot="dns-record"]')].map((r) => r.textContent)
+
+  it('shows each record its own state when routing is ready but ownership is not', () => {
+    renderCard([{ ...challenged(null), routing: 'ready', ownershipVerified: false }])
+    expect(rowTexts()).toEqual([
+      'Found: Routingfeedback.example.comCNAMEedge.example.net',
+      'Waiting: Verification_quackback-challenge.feedback.example.comTXTproof-1',
     ])
-    expect(screen.queryByText('proof-1')).toBeNull()
+    expect(screen.queryByText(/Already verified/)).toBeNull()
+  })
+
+  it('keeps asking for the challenge record while ownership is not accepted', () => {
+    renderCard([challenged('email-sending')])
+    expect(rowTexts()).toEqual([
+      'Waiting: Routingfeedback.example.comCNAMEedge.example.net',
+      'Waiting: Verification_quackback-challenge.feedback.example.comTXTproof-1',
+    ])
+  })
+
+  it('says how ownership was accepted and waits only on routing', () => {
+    renderCard([accepted('email-sending')])
+    expect(rowTexts()).toEqual(['Waiting: Routingfeedback.example.comCNAMEedge.example.net'])
     expect(screen.getByText('Already verified through email sending')).toBeTruthy()
   })
 
   it('says only that the workspace proved it when the viewer may not see the source', () => {
-    renderCard([challenged('workspace')])
+    renderCard([accepted('workspace')])
     expect(screen.getByText('Already verified by this workspace')).toBeTruthy()
     expect(screen.queryByText(/email sending|single sign-on/)).toBeNull()
-    expect(screen.queryByText('proof-1')).toBeNull()
+  })
+
+  it('follows overall readiness for every row when the operator sends no per-record state', () => {
+    renderCard([challenged(null)])
+    expect(rowTexts()).toEqual([
+      'Waiting: Routingfeedback.example.comCNAMEedge.example.net',
+      'Waiting: Verification_quackback-challenge.feedback.example.comTXTproof-1',
+    ])
+    cleanup()
+    renderCard([{ ...challenged(null), readiness: 'failed' }])
+    expect(rowTexts().every((t) => t?.startsWith('Needs a fix:'))).toBe(true)
+  })
+
+  it('explains a failure only under a record that is not found', () => {
+    renderCard([
+      { ...challenged(null), readiness: 'failed', routing: 'ready', ownershipVerified: false },
+    ])
+    const rows = [...document.querySelectorAll('[data-slot="dns-record"]')]
+    expect(rows.map((r) => r.textContent?.split(':')[0])).toEqual(['Found', 'Needs a fix'])
+    const fixes = document.querySelectorAll('[data-slot="dns-record-fix"]')
+    expect(fixes).toHaveLength(1)
+    expect(rows[1]!.nextElementSibling).toBe(fixes[0])
+  })
+
+  it('explains a failed route under the routing record once ownership is accepted', () => {
+    renderCard([{ ...accepted('email-sending'), readiness: 'failed', routing: 'failed' }])
+    const rows = [...document.querySelectorAll('[data-slot="dns-record"]')]
+    expect(rows.map((r) => r.textContent?.split(':')[0])).toEqual(['Needs a fix'])
+    expect(document.querySelectorAll('[data-slot="dns-record-fix"]')).toHaveLength(1)
   })
 
   it('asks for the challenge record as before when nothing covers the hostname', () => {
@@ -152,9 +256,11 @@ describe('<DomainsCard>', () => {
     expect(screen.queryByText(/Already verified/)).toBeNull()
   })
 
-  it('calls the card Custom domains, the field Domain and the re-check Verify', () => {
+  it('calls the card Domain verification, the field Domain and the re-check Verify', () => {
     renderCard([challenged(null)])
-    expect(screen.getByText('Custom domains')).toBeTruthy()
+    // Custom domains is the card above it, where each domain's use is set.
+    expect(screen.getByText('Domain verification')).toBeTruthy()
+    expect(screen.queryByText('Custom domains')).toBeNull()
     expect(screen.getByLabelText('Domain')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Verify' })).toBeTruthy()
     expect(screen.queryByText('Web addresses')).toBeNull()
@@ -172,9 +278,32 @@ describe('<DomainsCard>', () => {
     ).toBeTruthy()
   })
 
+  it('marks every record found for a ready hostname from an older operator', () => {
+    const records = hostnameRecords({ ...challenged(null), readiness: 'ready' })
+    expect(records.map((r) => [r.label, r.state])).toEqual([
+      ['Routing', 'found'],
+      ['Verification', 'found'],
+    ])
+  })
+
+  it('treats a proven zone from an older operator as verified ownership', () => {
+    renderCard([
+      {
+        ...challenged('email-sending'),
+        ownership: 'proven-zone',
+        ownershipSource: 'email-sending',
+      },
+    ])
+    expect(rowTexts()).toEqual(['Waiting: Routingfeedback.example.comCNAMEedge.example.net'])
+    expect(screen.queryByText('proof-1')).toBeNull()
+    expect(screen.getByText('Already verified through email sending')).toBeTruthy()
+  })
+
   it('names no hosting provider in its description', () => {
     renderCard([])
     expect(screen.queryByText(/cloud/i)).toBeNull()
-    expect(screen.getByText('Where people reach your portal and help center.')).toBeTruthy()
+    expect(
+      screen.getByText('Add a domain here, then choose what it is used for under Custom domains.')
+    ).toBeTruthy()
   })
 })

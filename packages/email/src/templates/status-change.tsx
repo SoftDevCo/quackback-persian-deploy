@@ -1,5 +1,5 @@
 import { Button, Heading, Section, Text } from '@react-email/components'
-import { EmailLayout, NotificationFooter } from './email-layout'
+import { EmailLayout, NotificationFooter, feedbackFooterReason } from './email-layout'
 import { typography, button, colors } from './shared-styles'
 
 interface StatusChangeEmailProps {
@@ -11,6 +11,8 @@ interface StatusChangeEmailProps {
   unsubscribeUrl: string
   preferencesUrl?: string
   logoUrl?: string
+  /** The reader wrote the post. Everyone else follows it (voted, commented or subscribed). */
+  isPostAuthor?: boolean
 }
 
 function getStatusEmoji(status: string): string {
@@ -53,23 +55,23 @@ export function StatusChangeEmail({
   unsubscribeUrl,
   preferencesUrl,
   logoUrl,
+  isPostAuthor = false,
 }: StatusChangeEmailProps) {
   const emoji = getStatusEmoji(newStatus)
   const formattedNewStatus = capitalizeStatus(newStatus)
   const formattedPreviousStatus = capitalizeStatus(previousStatus)
+  const headline = isPostAuthor
+    ? `وضعیت بازخورد شما اکنون ${formattedNewStatus} است!`
+    : `وضعیت مطلبی که دنبال می‌کنید اکنون ${formattedNewStatus} است`
 
   return (
-    <EmailLayout
-      preview={`${emoji} وضعیت بازخورد شما اکنون ${formattedNewStatus} است`}
-      logoUrl={logoUrl}
-      logoAlt={organizationName}
-    >
+    <EmailLayout preview={`${emoji} ${headline}`} logoUrl={logoUrl} logoAlt={organizationName}>
       {/* Content */}
-      <Heading style={typography.h1}>
-        {emoji} وضعیت بازخورد شما اکنون {formattedNewStatus} است!
-      </Heading>
+      <Heading style={typography.h1}>{`${emoji} ${headline}`}</Heading>
       <Text style={typography.text}>
-        خبر خوب! وضعیت بازخورد شما در {organizationName} به‌روزرسانی شده است.
+        {isPostAuthor
+          ? `خبر خوب! وضعیت بازخورد شما در ${organizationName} به‌روزرسانی شده است.`
+          : `وضعیت مطلبی که در ${organizationName} دنبال می‌کنید به‌روزرسانی شده است.`}
       </Text>
 
       {/* Post Title */}
@@ -102,7 +104,7 @@ export function StatusChangeEmail({
 
       {/* Footer */}
       <NotificationFooter
-        reason="این ایمیل به این دلیل برای شما ارسال شده که این بازخورد را ثبت کرده‌اید یا دریافت اعلان‌های آن را فعال کرده‌اید."
+        reason={feedbackFooterReason(isPostAuthor)}
         unsubscribeUrl={unsubscribeUrl}
         preferencesUrl={preferencesUrl}
       />

@@ -38,7 +38,9 @@ export function ChangelogPublishedEmail({
     >
       {/* Content */}
       <Heading style={typography.h1}>به‌روزرسانی جدید منتشر شد</Heading>
-      <Text style={typography.text}>{organizationName} به‌تازگی یک به‌روزرسانی محصول منتشر کرده است.</Text>
+      <Text style={typography.text}>
+        {organizationName} به‌تازگی یک به‌روزرسانی محصول منتشر کرده است.
+      </Text>
 
       {/* Changelog Title */}
       <Section
@@ -86,6 +88,7 @@ export function ChangelogPublishedEmail({
       <NotificationFooter
         reason="این ایمیل به این دلیل برای شما ارسال شده که دریافت به‌روزرسانی‌های تغییرات را فعال کرده‌اید."
         unsubscribeUrl={unsubscribeUrl}
+        unsubscribeLabel="Unsubscribe from the changelog"
         preferencesUrl={preferencesUrl}
       />
     </EmailLayout>

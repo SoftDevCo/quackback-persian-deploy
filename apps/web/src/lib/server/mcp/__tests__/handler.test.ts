@@ -31,12 +31,15 @@ const mockFindFirst = vi.fn()
 // The plan gate runs after auth and before any tool, so it sees what anything
 // recorded in that window would be attributed to.
 const entitlementGate = vi.hoisted(() => ({ seen: [] as unknown[] }))
-vi.mock('@/lib/server/domains/settings/cloud/entitlements', async (importOriginal) => {
+vi.mock('@/lib/server/domains/plan-limits/plan-limits.service', async () => {
   const { getAuditAttribution } = await import('@/lib/server/audit/attribution')
+  const { planLimitsServiceDouble } =
+    await import('@/lib/server/domains/plan-limits/__tests__/feature-states')
   return {
-    ...(await importOriginal<typeof import('@/lib/server/domains/settings/cloud/entitlements')>()),
-    requireEntitlement: async () => {
+    ...planLimitsServiceDouble,
+    isFeatureLive: async (key: Parameters<typeof planLimitsServiceDouble.isFeatureLive>[0]) => {
       entitlementGate.seen.push(getAuditAttribution())
+      return planLimitsServiceDouble.isFeatureLive(key)
     },
   }
 })
@@ -179,6 +182,12 @@ vi.mock('@/lib/server/domains/posts/post.voting', () => ({
   voteOnPost: vi.fn().mockResolvedValue({ voted: true, voteCount: 6 }),
   addVoteOnBehalf: vi.fn().mockResolvedValue({ voted: true, voteCount: 7 }),
   removeVote: vi.fn().mockResolvedValue({ removed: true, voteCount: 4 }),
+  // No one here is blocked; blocked-person-tools.db.test.ts drives the guard.
+  blockedVoteToggle: vi.fn().mockResolvedValue(null),
+}))
+
+vi.mock('@/lib/server/domains/principals/blocking', () => ({
+  assertNotBlocked: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('@/lib/server/domains/posts/post.access', () => ({
@@ -342,9 +351,11 @@ vi.mock('@/lib/server/domains/conversation/conversation.query', () => ({
   conversationToDTO: vi.fn(),
 }))
 vi.mock('@/lib/server/domains/conversation/conversation.service', () => ({
-  assertConversationViewable: vi.fn(),
   sendAgentMessage: vi.fn(),
   setConversationStatus: vi.fn(),
+}))
+vi.mock('@/lib/server/domains/conversation/conversation-visibility', () => ({
+  assertConversationVisible: vi.fn(),
 }))
 vi.mock('@/lib/server/domains/conversation/conversation.cards', () => ({
   suggestPost: vi.fn(),
@@ -462,8 +473,103 @@ describe('MCP HTTP Handler', () => {
   })
 
   // ===========================================================================
+  // Request size
+  // ===========================================================================
+
+  describe('Request size', () => {
+    it('refuses a request over the cap with a 413 that names the upload limit', async () => {
+      const { handleMcpRequest } = await import('../handler')
+      const { MCP_MAX_REQUEST_BYTES } = await import('../tools/files')
+      await setupValidAuth()
+
+      const request = mcpRequest(jsonRpcRequest('tools/list'))
+      request.headers.set('content-length', String(MCP_MAX_REQUEST_BYTES + 1))
+      const response = await handleMcpRequest(request)
+
+      expect(response.status).toBe(413)
+      const body = (await response.json()) as { error: { message: string } }
+      expect(body.error.message).toContain('upload_file accepts files up to 3 MB')
+      expect(body.error.message).toContain('/api/v1/files')
+    })
+
+    it.each([
+      ['an API key', () => setupValidAuth(), 'qb_valid_key'],
+      ['an OAuth token', () => setupValidOAuth(), 'oauth_test_token_abc123'],
+    ])(
+      'stops reading a body with no Content-Length at the cap (%s)',
+      async (_label, setup, token) => {
+        const { handleMcpRequest } = await import('../handler')
+        const { MCP_MAX_REQUEST_BYTES } = await import('../tools/files')
+        await setup()
+
+        // A streamed body declares no length, so the Content-Length pre-check
+        // cannot catch it. It is valid JSON-RPC padded far past the cap, and
+        // counts how much of it the server pulls.
+        const chunk = new TextEncoder().encode(' '.repeat(64 * 1024))
+        const head = new TextEncoder().encode(JSON.stringify(jsonRpcRequest('tools/list')))
+        const total = MCP_MAX_REQUEST_BYTES * 8
+        let pulled = 0
+        const body = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (pulled === 0) {
+              pulled += head.byteLength
+              controller.enqueue(head)
+            } else if (pulled < total) {
+              pulled += chunk.byteLength
+              controller.enqueue(chunk)
+            } else {
+              controller.close()
+            }
+          },
+        })
+        const request = new Request('https://example.com/api/mcp', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json, text/event-stream',
+            Authorization: `Bearer ${token}`,
+          },
+          body,
+          duplex: 'half',
+        } as RequestInit)
+
+        const response = await handleMcpRequest(request)
+
+        expect(response.status).toBe(413)
+        const answer = (await response.json()) as { error: { message: string } }
+        expect(answer.error.message).toContain('upload_file accepts files up to 3 MB')
+        // Read up to the cap plus a chunk of stream lookahead, never the rest.
+        expect(pulled).toBeLessThan(MCP_MAX_REQUEST_BYTES + 4 * chunk.byteLength)
+      }
+    )
+  })
+
+  // ===========================================================================
   // Auth Flow
   // ===========================================================================
+
+  describe('HTTP methods', () => {
+    it.each(['GET', 'DELETE'])(
+      'answers %s with 405 and Allow: POST before any auth runs',
+      async (method) => {
+        const { verifyAccessTokenRequest } = await import('better-auth/oauth2')
+        const { handleMcpRequest } = await import('../handler')
+        const response = await handleMcpRequest(
+          new Request('https://example.com/api/mcp', {
+            method,
+            headers: { authorization: 'Bearer some.jwt.token', accept: 'text/event-stream' },
+          })
+        )
+
+        expect(response.status).toBe(405)
+        expect(response.headers.get('allow')).toBe('POST')
+        // No event stream for a client to reconnect to, and no auth paid for.
+        expect(response.headers.get('content-type')).toBe('application/json')
+        expect(verifyAccessTokenRequest).not.toHaveBeenCalled()
+        expect(mockFindFirst).not.toHaveBeenCalled()
+      }
+    )
+  })
 
   describe('Authentication', () => {
     it('should return 401 with WWW-Authenticate when no Authorization header is provided', async () => {
@@ -479,7 +585,8 @@ describe('MCP HTTP Handler', () => {
       expect(response.status).toBe(401)
       const challenge = response.headers.get('www-authenticate') ?? ''
       expect(challenge).toContain('resource_metadata=')
-      expect(challenge).toContain('scope="read:feedback read:article read:chat read:settings"')
+      expect(challenge).toContain('scope="read:feedback write:feedback ')
+      expect(challenge).toContain('write:settings"')
     })
 
     it('should return 401 when API key is invalid', async () => {
@@ -1717,7 +1824,9 @@ describe('MCP HTTP Handler', () => {
 
       expect(response.status).toBe(403)
       expect(response.headers.get('www-authenticate') ?? '').toContain('error="insufficient_scope"')
-      expect(response.headers.get('www-authenticate') ?? '').toContain('scope="read:feedback"')
+      expect(response.headers.get('www-authenticate') ?? '').toMatch(
+        /scope="[^"]*read:feedback[^"]*"/
+      )
     })
 
     it('should deny create_post when write:feedback scope missing', async () => {
@@ -1734,7 +1843,58 @@ describe('MCP HTTP Handler', () => {
 
       expect(response.status).toBe(403)
       expect(response.headers.get('www-authenticate') ?? '').toContain('error="insufficient_scope"')
-      expect(response.headers.get('www-authenticate') ?? '').toContain('scope="write:feedback"')
+      expect(response.headers.get('www-authenticate') ?? '').toMatch(
+        /scope="[^"]*write:feedback[^"]*"/
+      )
+    })
+
+    it('challenges with the scopes the token holds plus the missing one', async () => {
+      const handleMcpRequest = await initializeOAuthSession(['read:feedback', 'read:chat'])
+
+      const response = await handleMcpRequest(
+        oauthRequest(
+          jsonRpcRequest('tools/call', {
+            name: 'create_post',
+            arguments: { boardId: 'board_test', title: 'Test' },
+          })
+        )
+      )
+
+      expect(response.status).toBe(403)
+      const header = response.headers.get('www-authenticate') ?? ''
+      expect(header).toContain('scope="read:feedback write:feedback read:chat"')
+      const body = (await response.json()) as {
+        result: { isError: boolean; _meta: Record<string, string[]> }
+      }
+      expect(body.result.isError).toBe(true)
+      expect(body.result._meta['mcp/www_authenticate']).toEqual([header])
+    })
+
+    it('declares the scope each tool needs in the tool listing', async () => {
+      const handleMcpRequest = await initializeOAuthSession(['read:feedback', 'write:feedback'])
+
+      const response = await handleMcpRequest(oauthRequest(jsonRpcRequest('tools/list', {})))
+      const body = (await response.json()) as {
+        result: { tools: { name: string; _meta?: { securitySchemes?: unknown } }[] }
+      }
+      const schemes = (name: string) =>
+        body.result.tools.find((tool) => tool.name === name)?._meta?.securitySchemes
+
+      expect(schemes('create_post')).toEqual([{ type: 'oauth2', scopes: ['write:feedback'] }])
+      // A tool that picks its scope from its arguments declares every read
+      // scope a branch can need.
+      expect(schemes('search')).toEqual([
+        { type: 'oauth2', scopes: ['read:feedback', 'read:article'] },
+      ])
+      // Every tool declares at least one scope and has a title.
+      for (const tool of body.result.tools as {
+        name: string
+        title?: string
+        _meta?: { securitySchemes?: { scopes: string[] }[] }
+      }[]) {
+        expect(tool.title, tool.name).toMatch(/\S/)
+        expect(tool._meta?.securitySchemes?.[0]?.scopes.length, tool.name).toBeGreaterThan(0)
+      }
     })
 
     it('should deny create_changelog when write:changelog scope missing', async () => {
@@ -1750,7 +1910,9 @@ describe('MCP HTTP Handler', () => {
       )
 
       expect(response.status).toBe(403)
-      expect(response.headers.get('www-authenticate') ?? '').toContain('scope="write:changelog"')
+      expect(response.headers.get('www-authenticate') ?? '').toMatch(
+        /scope="[^"]*write:changelog[^"]*"/
+      )
     })
 
     it('should deny search(articles) when read:article scope missing', async () => {
@@ -1767,7 +1929,9 @@ describe('MCP HTTP Handler', () => {
 
       expect(response.status).toBe(403)
       expect(response.headers.get('www-authenticate') ?? '').toContain('error="insufficient_scope"')
-      expect(response.headers.get('www-authenticate') ?? '').toContain('scope="read:article"')
+      expect(response.headers.get('www-authenticate') ?? '').toMatch(
+        /scope="[^"]*read:article[^"]*"/
+      )
     })
 
     it('should allow search with read:feedback scope', async () => {
@@ -1835,7 +1999,9 @@ describe('MCP HTTP Handler', () => {
       )
 
       expect(response.status).toBe(403)
-      expect(response.headers.get('www-authenticate') ?? '').toContain('scope="write:feedback"')
+      expect(response.headers.get('www-authenticate') ?? '').toMatch(
+        /scope="[^"]*write:feedback[^"]*"/
+      )
     })
 
     it('should deny restore_post when write:feedback scope missing', async () => {
@@ -1851,7 +2017,9 @@ describe('MCP HTTP Handler', () => {
       )
 
       expect(response.status).toBe(403)
-      expect(response.headers.get('www-authenticate') ?? '').toContain('scope="write:feedback"')
+      expect(response.headers.get('www-authenticate') ?? '').toMatch(
+        /scope="[^"]*write:feedback[^"]*"/
+      )
     })
 
     it('should deny search posts for OAuth portal user (inbox is team-only)', async () => {
@@ -2423,11 +2591,11 @@ describe('MCP HTTP Handler', () => {
 
     it('get_conversation excludes internal notes by default', async () => {
       const handle = await initializeSession()
-      const { assertConversationViewable } =
-        await import('@/lib/server/domains/conversation/conversation.service')
+      const { assertConversationVisible } =
+        await import('@/lib/server/domains/conversation/conversation-visibility')
       const { conversationToDTO, listMessages } =
         await import('@/lib/server/domains/conversation/conversation.query')
-      vi.mocked(assertConversationViewable).mockResolvedValue({ id: 'conversation_1' } as never)
+      vi.mocked(assertConversationVisible).mockResolvedValue({ id: 'conversation_1' } as never)
       vi.mocked(conversationToDTO).mockResolvedValue({
         id: 'conversation_1',
         status: 'open',
@@ -2611,7 +2779,7 @@ describe('MCP HTTP Handler', () => {
 
       expect(response.status).toBe(403)
       expect(response.headers.get('www-authenticate') ?? '').toContain('error="insufficient_scope"')
-      expect(response.headers.get('www-authenticate') ?? '').toContain('scope="write:chat"')
+      expect(response.headers.get('www-authenticate') ?? '').toMatch(/scope="[^"]*write:chat[^"]*"/)
     })
 
     it('should deny share_post when write:chat scope missing', async () => {
@@ -2643,7 +2811,7 @@ describe('MCP HTTP Handler', () => {
       )
 
       expect(response.status).toBe(403)
-      expect(response.headers.get('www-authenticate') ?? '').toContain('scope="write:chat"')
+      expect(response.headers.get('www-authenticate') ?? '').toMatch(/scope="[^"]*write:chat[^"]*"/)
     })
 
     it('should deny reply_to_conversation when write:chat scope missing', async () => {
@@ -2676,7 +2844,7 @@ describe('MCP HTTP Handler', () => {
       )
 
       expect(response.status).toBe(403)
-      expect(response.headers.get('www-authenticate') ?? '').toContain('scope="write:chat"')
+      expect(response.headers.get('www-authenticate') ?? '').toMatch(/scope="[^"]*write:chat[^"]*"/)
     })
 
     it('should deny list_conversations for OAuth portal user (role enforcement)', async () => {
@@ -2930,4 +3098,47 @@ describe('MCP HTTP Handler', () => {
       ])
     })
   })
+})
+
+// The plan gate reads isFeatureLive('mcpServer'). MCP is not a grace feature,
+// so it stops at once on a drop, and the refusal is the same 402 body as the
+// entitlement gate it replaced.
+describe('MCP plan gate and the plan limits pause', () => {
+  it.each(['tierOff', 'grace', 'enforced', 'included'] as const)(
+    'in the %s state',
+    async (state) => {
+      const { setFeatureState } =
+        await import('@/lib/server/domains/plan-limits/__tests__/feature-states')
+      const { storedCloud } =
+        await import('@/lib/server/domains/settings/cloud/__tests__/cloud-fixture')
+      const { resolveCloudConfig } =
+        await import('@/lib/server/domains/settings/cloud/cloud.service')
+      const { buildRefusal } = await import('@/lib/server/domains/settings/cloud/entitlements')
+      const { getWorkspaceSettings } =
+        await import('@/lib/server/domains/settings/settings.service')
+      await setupValidAuth()
+      const cloud = storedCloud('free')
+      vi.mocked(getWorkspaceSettings).mockResolvedValue({ settings: { cloud } } as never)
+      setFeatureState(state, 'mcpServer')
+      try {
+        const { handleMcpRequest } = await import('../handler')
+        const response = await handleMcpRequest(mcpRequest(jsonRpcRequest('tools/list')))
+        if (state === 'included') {
+          expect(response.status).toBe(200)
+        } else {
+          const refusal = buildRefusal(resolveCloudConfig(cloud), 'mcpServer')
+          expect(response.status).toBe(402)
+          expect(await response.json()).toEqual({
+            jsonrpc: '2.0',
+            error: { code: -32001, message: refusal.message, data: refusal.toResponseBody() },
+            // The refusal answers the request it refuses (JSON-RPC 2.0 §5).
+            id: 1,
+          })
+        }
+      } finally {
+        setFeatureState('tierOff')
+        vi.mocked(getWorkspaceSettings).mockResolvedValue(null)
+      }
+    }
+  )
 })

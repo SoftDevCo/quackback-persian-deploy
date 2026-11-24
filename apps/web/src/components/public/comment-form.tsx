@@ -29,6 +29,12 @@ import type { TiptapContent } from '@/lib/shared/db-types'
 import type { PostId, PostCommentId } from '@quackback/ids'
 import { useSessionContext } from '@/lib/client/hooks/use-root-context'
 import { shownName } from '@/lib/shared/greeting-name'
+import { errorText } from '@/lib/client/error-text'
+
+// The refusal a blocked person gets (person-blocked.ts), matched by its code.
+// Kept local so this file loads no extra module.
+const isBlockedRefusal = (err: unknown): boolean =>
+  (err as { code?: unknown } | null)?.code === 'BLOCKED'
 
 export type CreateCommentMutation = UseMutationResult<
   unknown,
@@ -198,12 +204,18 @@ export function CommentForm({
         },
         onError: (err) => {
           setError(
-            err instanceof Error
-              ? err.message
-              : intl.formatMessage({
-                  id: 'portal.commentForm.errorPost',
-                  defaultMessage: 'Failed to post comment',
+            isBlockedRefusal(err)
+              ? intl.formatMessage({
+                  id: 'portal.blocked',
+                  defaultMessage: "You can't post, vote or comment here.",
                 })
+              : errorText(
+                  err,
+                  intl.formatMessage({
+                    id: 'portal.commentForm.errorPost',
+                    defaultMessage: 'Failed to post comment',
+                  })
+                )
           )
         },
       }
@@ -372,7 +384,7 @@ export function CommentForm({
                             />
                           </span>
                         )}
-                        {isSelected && <CheckIcon className="size-3.5 text-primary shrink-0" />}
+                        {isSelected && <CheckIcon className="size-3.5 text-primary-ink shrink-0" />}
                       </button>
                     )
                   })}
@@ -548,7 +560,7 @@ export function CommentForm({
                 {' ('}
                 <button
                   type="button"
-                  className="text-primary hover:underline"
+                  className="text-primary-ink hover:underline"
                   onClick={() => {
                     signOut({
                       fetchOptions: {

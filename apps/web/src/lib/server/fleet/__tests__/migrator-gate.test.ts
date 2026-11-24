@@ -384,6 +384,20 @@ describe('replayGateVerdict', () => {
       '0307_drop_approval_bell_index',
       '0308_remove_approvals_leftovers',
       '0309_api_key_kinds',
+      '0310_sending_domain_ownership_grace',
+      '0311_sending_domain_ownership_warning_sent',
+      '0312_conversation_thread_sender',
+      '0313_email_senders',
+      '0314_domains',
+      '0315_domains_ownership_warning',
+      '0316_personal_key_reply_cutoff',
+      '0317_plan_limits_state',
+      '0318_board_read_only',
+      '0319_outbound_email_sent_message_id',
+      '0320_roadmap_slug_live_only',
+      '0321_live_taxonomy_unique',
+      '0322_session_two_factor_pending',
+      '0323_clear_legacy_header_settings',
     ])
     const verdict = replayGateVerdict(before, verdictsFor(replaySetFor(before)), false)
     expect(verdict.ok).toBe(false)

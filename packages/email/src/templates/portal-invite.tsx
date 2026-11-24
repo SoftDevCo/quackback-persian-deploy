@@ -24,8 +24,8 @@ export function PortalInviteEmail({
       {/* Content */}
       <Heading style={typography.h1}>از شما دعوت شده است!</Heading>
       <Text style={typography.text}>
-        برای دسترسی به پورتال <strong>{workspaceName}</strong> دعوت شده‌اید. برای پذیرش دعوت و
-        ورود، روی دکمه‌ی زیر کلیک کنید.
+        برای دسترسی به پورتال <strong>{workspaceName}</strong> دعوت شده‌اید. برای پذیرش دعوت و ورود،
+        روی دکمه‌ی زیر کلیک کنید.
       </Text>
 
       {personalMessage && (

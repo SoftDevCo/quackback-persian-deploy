@@ -36,8 +36,8 @@ export function SignupNotAllowedEmail({ workspaceName, logoUrl }: SignupNotAllow
       </Text>
 
       <TransactionalFooter>
-        اگر شما این درخواست را نداده‌اید، می‌توانید این ایمیل را نادیده بگیرید. هیچ حسابی ساخته
-        نشده و تغییری انجام نشده است.
+        اگر شما این درخواست را نداده‌اید، می‌توانید این ایمیل را نادیده بگیرید. هیچ حسابی ساخته نشده
+        و تغییری انجام نشده است.
       </TransactionalFooter>
     </EmailLayout>
   )

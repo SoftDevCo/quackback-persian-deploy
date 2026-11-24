@@ -49,6 +49,8 @@ import {
 } from './fingerprint'
 import { openWorkspaceSecret } from './vendor/fleet-secrets'
 import type { WorkspaceDescriptor } from './registry'
+import { isPooledTenancy } from './mode'
+import { getWorkspaceScope } from './workspace-context'
 import { clearWorkspaceSecretsCache, resolveWorkspaceSecrets } from './workspace-secrets'
 import { parseSecretRef, redactRef, withPassword } from './vendor/secret-ref'
 import type { ResolvedWorkspaceSecrets } from './vendor/workspace-secret-resolution'
@@ -64,6 +66,8 @@ interface PoolEntry {
   db: Database
   createdAt: number
   lastUsedAt: number
+  /** Transactions open on this pool. The idle sweep never closes a pool mid-transaction. */
+  openTransactions: number
   /**
    * Resolves once the database has proven it is the one the registry named AND
    * this process has proven it holds that workspace's own `SECRET_KEY`. It yields
@@ -195,12 +199,34 @@ function createEntry(workspace: WorkspaceDescriptor): PoolEntry {
     db,
     createdAt: Date.now(),
     lastUsedAt: Date.now(),
+    openTransactions: 0,
     verification: verifyWorkspaceDatabase(workspace, sql),
   }
+  trackTransactions(entry)
   // A rejected verification promise with no attached handler would surface as an
   // unhandled rejection before the first `await` reaches it.
   entry.verification.catch(() => {})
   return entry
+}
+
+/**
+ * Count the transactions open on a pool, and treat the end of one as use.
+ *
+ * `lastUsedAt` is otherwise only set when a request checks the pool out, so a
+ * transaction that runs longer than the idle window would look idle and have
+ * its connection closed underneath it.
+ */
+function trackTransactions(entry: PoolEntry): void {
+  const transaction = entry.db.transaction.bind(entry.db)
+  entry.db.transaction = (async (...args: Parameters<typeof transaction>) => {
+    entry.openTransactions += 1
+    try {
+      return await transaction(...args)
+    } finally {
+      entry.openTransactions -= 1
+      entry.lastUsedAt = Date.now()
+    }
+  }) as typeof entry.db.transaction
 }
 
 /**
@@ -213,6 +239,32 @@ function createEntry(workspace: WorkspaceDescriptor): PoolEntry {
  */
 export async function resolveWorkspacePassword(workspace: WorkspaceDescriptor): Promise<string> {
   return resolvePassword(workspace)
+}
+
+/**
+ * The direct DSN for the active workspace, for a connection that must not go
+ * through a transaction-mode pooler: a `LISTEN`, or a `CREATE INDEX
+ * CONCURRENTLY` that can take minutes.
+ *
+ * Single-workspace installs use `DATABASE_URL`, which for a self-hosted
+ * deployment already is a direct session-mode connection. Pooled installs must
+ * reach for the registry's `directUrl`: the pooled URL would register a LISTEN
+ * and deliver nothing.
+ */
+export async function directConnection(): Promise<{
+  url: string
+  password?: () => Promise<string>
+}> {
+  if (!isPooledTenancy()) return { url: config.databaseUrl }
+  const scope = getWorkspaceScope()
+  if (!scope) {
+    throw new Error(
+      'a direct connection requires a workspace scope under QUACKBACK_TENANCY=pooled: ' +
+        "it is built from this workspace's direct DSN."
+    )
+  }
+  const workspace = scope.workspace
+  return { url: workspace.database.directUrl, password: () => resolveWorkspacePassword(workspace) }
 }
 
 async function resolvePassword(workspace: WorkspaceDescriptor): Promise<string> {
@@ -448,6 +500,7 @@ export async function sweepIdlePools(now = Date.now()): Promise<number> {
   const thresholdMs = config.workspacePoolIdleSeconds * 1000
   const doomed: string[] = []
   for (const [workspaceKey, entry] of pools) {
+    if (entry.openTransactions > 0) continue
     if (now - entry.lastUsedAt >= thresholdMs) doomed.push(workspaceKey)
   }
   for (const workspaceKey of doomed) await evict(workspaceKey, 'idle')

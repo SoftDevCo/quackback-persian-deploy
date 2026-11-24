@@ -14,6 +14,7 @@ const ALL_TYPES: Record<NotificationType, true> = {
   post_status_changed: true,
   comment_created: true,
   post_mentioned: true,
+  post_moderated: true,
   post_owner_assigned: true,
   changelog_published: true,
   status_incident: true,
@@ -32,6 +33,7 @@ const ALL_TYPES: Record<NotificationType, true> = {
   assistant_handed_off: true,
   sending_domain_live: true,
   sending_domain_needs_attention: true,
+  domain_needs_attention: true,
 }
 
 describe('notification catalog bijection', () => {

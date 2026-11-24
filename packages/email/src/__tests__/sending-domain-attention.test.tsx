@@ -40,7 +40,7 @@ describe('SendingDomainAttentionEmail', () => {
     )
     expect(text).toContain('ارسال ایمیل از acme.com نیاز به بررسی دارد')
     expect(text).toContain('رکورد مسیر بازگشت (MX qb-bounce.acme.com) وجود ندارد.')
-    expect(text).toContain('تا زمان رفع مشکل، پاسخ‌ها از نشانی پیش‌فرض ارسال می‌شوند.')
+    expect(text).toContain('تا زمان رفع مشکل، ایمیل‌ها از نشانی پیش‌فرض ارسال می‌شوند.')
     expect(text).toContain('تا همهٔ رکوردها را ببینید و تأیید کنید.')
   })
 
@@ -81,6 +81,31 @@ describe('SendingDomainAttentionEmail', () => {
     expect(text).toContain(
       'رکورد DKIM (CNAME tok._domainkey.acme.com) از پراکسی عبور می‌کند. پراکسی آن را غیرفعال کنید.'
     )
+  })
+
+  it('warns with the record to add back and the date to add it by', async () => {
+    const text = visibleText(
+      await render(
+        SendingDomainAttentionEmail({
+          domain: 'acme.com',
+          record: {
+            purpose: 'ownership',
+            type: 'TXT',
+            name: '_quackback.acme.com',
+            state: 'missing',
+            value: 'quackback-domain-verification=abc',
+          },
+          deadline: '17 November 2026',
+        })
+      )
+    )
+    expect(text).toContain('رکورد مالکیت (TXT _quackback.acme.com) وجود ندارد.')
+    expect(text).toContain('مقدار: quackback-domain-verification=abc')
+    expect(text).toContain(
+      'برای ادامهٔ ارسال از acme.com، رکورد را تا 17 November 2026 دوباره اضافه کنید.'
+    )
+    // Still sending from the domain, so it does not say replies have fallen back.
+    expect(text).not.toContain('تا زمان رفع مشکل، ایمیل‌ها از نشانی پیش‌فرض ارسال می‌شوند.')
   })
 
   it('falls back to the provider when every record still looks right', async () => {
